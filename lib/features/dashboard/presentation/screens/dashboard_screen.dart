@@ -355,11 +355,10 @@ class _DashboardHeaderBackgroundState
 
   String _getGreetingForHour() {
     final hour = DateTime.now().hour;
-    return hour < 12
-        ? 'Good Morning ☀️'
-        : hour < 17
-            ? 'Good Afternoon 🌤️'
-            : 'Good Evening 🌙';
+    if (hour < 5) return 'Good Night 🌙';      // 12 AM to 4 AM
+    if (hour < 12) return 'Good Morning ☀️';   // 5 AM to 11 AM
+    if (hour < 17) return 'Good Afternoon 🌤️'; // 12 PM to 4 PM
+    return 'Good Evening 🌙';                  // 5 PM to 11 PM
   }
 
   void _updateGreeting() {
@@ -437,6 +436,7 @@ class _DashboardHeaderBackgroundState
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
                   _greeting,
@@ -444,14 +444,6 @@ class _DashboardHeaderBackgroundState
                     fontWeight: FontWeight.w300,
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                     letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Manage your Garba collection',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant
-                        .withValues(alpha: 0.6),
                   ),
                 ),
               ],
