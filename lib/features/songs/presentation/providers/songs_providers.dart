@@ -72,18 +72,29 @@ final songsCategoryProvider =
 });
 
 /// Filtered songs based on search query and category.
-final filteredSongsProvider = FutureProvider<List<Song>>((ref) async {
+final filteredSongsProvider = Provider<AsyncValue<List<Song>>>((ref) {
   final query = ref.watch(songsSearchProvider);
   final category = ref.watch(songsCategoryProvider);
-  final dao = ref.watch(songsDaoProvider);
+  final allSongsAsync = ref.watch(allSongsProvider);
 
-  if (query.isNotEmpty) {
-    return dao.searchByTitleOrLyrics(query);
-  }
-  if (category != null) {
-    return dao.filterByCategory(category);
-  }
-  return dao.getAllSongs();
+  return allSongsAsync.whenData((songs) {
+    var filtered = songs;
+
+    if (query.isNotEmpty) {
+      final lowerQuery = query.toLowerCase();
+      filtered = filtered
+          .where((s) =>
+              s.title.toLowerCase().contains(lowerQuery) ||
+              (s.lyrics?.toLowerCase().contains(lowerQuery) ?? false))
+          .toList();
+    }
+
+    if (category != null) {
+      filtered = filtered.where((s) => s.category == category).toList();
+    }
+
+    return filtered;
+  });
 });
 
 /// Creates a new song.

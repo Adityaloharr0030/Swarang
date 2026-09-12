@@ -235,6 +235,10 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
 
   /// Cleans raw OCR output: removes lone page numbers, trims extra blank lines.
   String _cleanOcrText(String raw) {
+    // Sanitize string to remove null bytes and control characters (except newline/tab)
+    // which can cause SQLite to throw "save errors" during insertion.
+    raw = raw.replaceAll(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'), '');
+    
     final lines = raw.split('\n');
     final cleaned = <String>[];
 

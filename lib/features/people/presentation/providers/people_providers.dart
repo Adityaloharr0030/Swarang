@@ -64,14 +64,19 @@ final peopleSearchProvider =
 });
 
 /// Filtered people based on search query.
-final filteredPeopleProvider = FutureProvider<List<Person>>((ref) async {
+final filteredPeopleProvider = Provider<AsyncValue<List<Person>>>((ref) {
   final query = ref.watch(peopleSearchProvider);
-  final dao = ref.watch(peopleDaoProvider);
+  final allPeopleAsync = ref.watch(allPeopleProvider);
 
-  if (query.isEmpty) {
-    return dao.getAllPeople();
-  }
-  return dao.searchByName(query);
+  return allPeopleAsync.whenData((people) {
+    if (query.isEmpty) {
+      return people;
+    }
+    final lowerQuery = query.toLowerCase();
+    return people
+        .where((p) => p.name.toLowerCase().contains(lowerQuery))
+        .toList();
+  });
 });
 
 /// Creates a new person.
@@ -81,6 +86,8 @@ Future<int> createPerson(WidgetRef ref, PeopleCompanion person) async {
   // Manual invalidation no longer strictly needed for reactive streams, 
   // but we keep it for filtered list if it's still a FutureProvider.
   ref.invalidate(allPeopleProvider);
+  ref.invalidate(filteredPeopleProvider);
+  ref.invalidate(peopleCountProvider);
   return id;
 }
 
@@ -89,6 +96,7 @@ Future<void> updatePerson(WidgetRef ref, PeopleCompanion person) async {
   final dao = ref.read(peopleDaoProvider);
   await dao.updatePerson(person);
   ref.invalidate(allPeopleProvider);
+  ref.invalidate(filteredPeopleProvider);
   ref.invalidate(personByIdProvider(person.id.value));
 }
 
@@ -101,4 +109,6 @@ Future<void> deletePerson(WidgetRef ref, int personId) async {
   await peopleDao.deletePerson(personId);
 
   ref.invalidate(allPeopleProvider);
+  ref.invalidate(filteredPeopleProvider);
+  ref.invalidate(peopleCountProvider);
 }
