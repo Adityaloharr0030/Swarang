@@ -29,13 +29,24 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration {
     return MigrationStrategy(
       onCreate: (Migrator m) async {
         await m.createAll();
+      },
+      onUpgrade: (Migrator m, int from, int to) async {
+        if (from < 2) {
+          // Add photo_paths and pdf_path columns for direct file attachments.
+          await m.addColumn(songs, songs.photoPaths);
+          await m.addColumn(songs, songs.pdfPath);
+        }
+        if (from < 3) {
+          // Recreate the table to drop the NOT NULL constraint on lyrics.
+          await m.alterTable(TableMigration(songs));
+        }
       },
       beforeOpen: (details) async {
         // Enable foreign key constraints.

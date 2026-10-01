@@ -589,10 +589,9 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, Song> {
   late final GeneratedColumn<String> lyrics = GeneratedColumn<String>(
     'lyrics',
     aliasedName,
-    false,
-    additionalChecks: GeneratedColumn.checkTextLength(minTextLength: 1),
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _categoryMeta = const VerificationMeta(
     'category',
@@ -609,6 +608,28 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, Song> {
   @override
   late final GeneratedColumn<String> notes = GeneratedColumn<String>(
     'notes',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _photoPathsMeta = const VerificationMeta(
+    'photoPaths',
+  );
+  @override
+  late final GeneratedColumn<String> photoPaths = GeneratedColumn<String>(
+    'photo_paths',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _pdfPathMeta = const VerificationMeta(
+    'pdfPath',
+  );
+  @override
+  late final GeneratedColumn<String> pdfPath = GeneratedColumn<String>(
+    'pdf_path',
     aliasedName,
     true,
     type: DriftSqlType.string,
@@ -645,6 +666,8 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, Song> {
     lyrics,
     category,
     notes,
+    photoPaths,
+    pdfPath,
     createdAt,
     updatedAt,
   ];
@@ -676,8 +699,6 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, Song> {
         _lyricsMeta,
         lyrics.isAcceptableOrUnknown(data['lyrics']!, _lyricsMeta),
       );
-    } else if (isInserting) {
-      context.missing(_lyricsMeta);
     }
     if (data.containsKey('category')) {
       context.handle(
@@ -689,6 +710,18 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, Song> {
       context.handle(
         _notesMeta,
         notes.isAcceptableOrUnknown(data['notes']!, _notesMeta),
+      );
+    }
+    if (data.containsKey('photo_paths')) {
+      context.handle(
+        _photoPathsMeta,
+        photoPaths.isAcceptableOrUnknown(data['photo_paths']!, _photoPathsMeta),
+      );
+    }
+    if (data.containsKey('pdf_path')) {
+      context.handle(
+        _pdfPathMeta,
+        pdfPath.isAcceptableOrUnknown(data['pdf_path']!, _pdfPathMeta),
       );
     }
     if (data.containsKey('created_at')) {
@@ -723,7 +756,7 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, Song> {
       lyrics: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}lyrics'],
-      )!,
+      ),
       category: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}category'],
@@ -731,6 +764,14 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, Song> {
       notes: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}notes'],
+      ),
+      photoPaths: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}photo_paths'],
+      ),
+      pdfPath: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}pdf_path'],
       ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
@@ -752,17 +793,25 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, Song> {
 class Song extends DataClass implements Insertable<Song> {
   final int id;
   final String title;
-  final String lyrics;
+  final String? lyrics;
   final String? category;
   final String? notes;
+
+  /// Comma-separated local file paths for attached page photos.
+  final String? photoPaths;
+
+  /// Local file path for an attached PDF document.
+  final String? pdfPath;
   final DateTime createdAt;
   final DateTime updatedAt;
   const Song({
     required this.id,
     required this.title,
-    required this.lyrics,
+    this.lyrics,
     this.category,
     this.notes,
+    this.photoPaths,
+    this.pdfPath,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -771,12 +820,20 @@ class Song extends DataClass implements Insertable<Song> {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['title'] = Variable<String>(title);
-    map['lyrics'] = Variable<String>(lyrics);
+    if (!nullToAbsent || lyrics != null) {
+      map['lyrics'] = Variable<String>(lyrics);
+    }
     if (!nullToAbsent || category != null) {
       map['category'] = Variable<String>(category);
     }
     if (!nullToAbsent || notes != null) {
       map['notes'] = Variable<String>(notes);
+    }
+    if (!nullToAbsent || photoPaths != null) {
+      map['photo_paths'] = Variable<String>(photoPaths);
+    }
+    if (!nullToAbsent || pdfPath != null) {
+      map['pdf_path'] = Variable<String>(pdfPath);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
@@ -787,13 +844,21 @@ class Song extends DataClass implements Insertable<Song> {
     return SongsCompanion(
       id: Value(id),
       title: Value(title),
-      lyrics: Value(lyrics),
+      lyrics: lyrics == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lyrics),
       category: category == null && nullToAbsent
           ? const Value.absent()
           : Value(category),
       notes: notes == null && nullToAbsent
           ? const Value.absent()
           : Value(notes),
+      photoPaths: photoPaths == null && nullToAbsent
+          ? const Value.absent()
+          : Value(photoPaths),
+      pdfPath: pdfPath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pdfPath),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -807,9 +872,11 @@ class Song extends DataClass implements Insertable<Song> {
     return Song(
       id: serializer.fromJson<int>(json['id']),
       title: serializer.fromJson<String>(json['title']),
-      lyrics: serializer.fromJson<String>(json['lyrics']),
+      lyrics: serializer.fromJson<String?>(json['lyrics']),
       category: serializer.fromJson<String?>(json['category']),
       notes: serializer.fromJson<String?>(json['notes']),
+      photoPaths: serializer.fromJson<String?>(json['photoPaths']),
+      pdfPath: serializer.fromJson<String?>(json['pdfPath']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -820,9 +887,11 @@ class Song extends DataClass implements Insertable<Song> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'title': serializer.toJson<String>(title),
-      'lyrics': serializer.toJson<String>(lyrics),
+      'lyrics': serializer.toJson<String?>(lyrics),
       'category': serializer.toJson<String?>(category),
       'notes': serializer.toJson<String?>(notes),
+      'photoPaths': serializer.toJson<String?>(photoPaths),
+      'pdfPath': serializer.toJson<String?>(pdfPath),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -831,17 +900,21 @@ class Song extends DataClass implements Insertable<Song> {
   Song copyWith({
     int? id,
     String? title,
-    String? lyrics,
+    Value<String?> lyrics = const Value.absent(),
     Value<String?> category = const Value.absent(),
     Value<String?> notes = const Value.absent(),
+    Value<String?> photoPaths = const Value.absent(),
+    Value<String?> pdfPath = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => Song(
     id: id ?? this.id,
     title: title ?? this.title,
-    lyrics: lyrics ?? this.lyrics,
+    lyrics: lyrics.present ? lyrics.value : this.lyrics,
     category: category.present ? category.value : this.category,
     notes: notes.present ? notes.value : this.notes,
+    photoPaths: photoPaths.present ? photoPaths.value : this.photoPaths,
+    pdfPath: pdfPath.present ? pdfPath.value : this.pdfPath,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -852,6 +925,10 @@ class Song extends DataClass implements Insertable<Song> {
       lyrics: data.lyrics.present ? data.lyrics.value : this.lyrics,
       category: data.category.present ? data.category.value : this.category,
       notes: data.notes.present ? data.notes.value : this.notes,
+      photoPaths: data.photoPaths.present
+          ? data.photoPaths.value
+          : this.photoPaths,
+      pdfPath: data.pdfPath.present ? data.pdfPath.value : this.pdfPath,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -865,6 +942,8 @@ class Song extends DataClass implements Insertable<Song> {
           ..write('lyrics: $lyrics, ')
           ..write('category: $category, ')
           ..write('notes: $notes, ')
+          ..write('photoPaths: $photoPaths, ')
+          ..write('pdfPath: $pdfPath, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -872,8 +951,17 @@ class Song extends DataClass implements Insertable<Song> {
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, title, lyrics, category, notes, createdAt, updatedAt);
+  int get hashCode => Object.hash(
+    id,
+    title,
+    lyrics,
+    category,
+    notes,
+    photoPaths,
+    pdfPath,
+    createdAt,
+    updatedAt,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -883,6 +971,8 @@ class Song extends DataClass implements Insertable<Song> {
           other.lyrics == this.lyrics &&
           other.category == this.category &&
           other.notes == this.notes &&
+          other.photoPaths == this.photoPaths &&
+          other.pdfPath == this.pdfPath &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -890,9 +980,11 @@ class Song extends DataClass implements Insertable<Song> {
 class SongsCompanion extends UpdateCompanion<Song> {
   final Value<int> id;
   final Value<String> title;
-  final Value<String> lyrics;
+  final Value<String?> lyrics;
   final Value<String?> category;
   final Value<String?> notes;
+  final Value<String?> photoPaths;
+  final Value<String?> pdfPath;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   const SongsCompanion({
@@ -901,25 +993,30 @@ class SongsCompanion extends UpdateCompanion<Song> {
     this.lyrics = const Value.absent(),
     this.category = const Value.absent(),
     this.notes = const Value.absent(),
+    this.photoPaths = const Value.absent(),
+    this.pdfPath = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
   });
   SongsCompanion.insert({
     this.id = const Value.absent(),
     required String title,
-    required String lyrics,
+    this.lyrics = const Value.absent(),
     this.category = const Value.absent(),
     this.notes = const Value.absent(),
+    this.photoPaths = const Value.absent(),
+    this.pdfPath = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
-  }) : title = Value(title),
-       lyrics = Value(lyrics);
+  }) : title = Value(title);
   static Insertable<Song> custom({
     Expression<int>? id,
     Expression<String>? title,
     Expression<String>? lyrics,
     Expression<String>? category,
     Expression<String>? notes,
+    Expression<String>? photoPaths,
+    Expression<String>? pdfPath,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
   }) {
@@ -929,6 +1026,8 @@ class SongsCompanion extends UpdateCompanion<Song> {
       if (lyrics != null) 'lyrics': lyrics,
       if (category != null) 'category': category,
       if (notes != null) 'notes': notes,
+      if (photoPaths != null) 'photo_paths': photoPaths,
+      if (pdfPath != null) 'pdf_path': pdfPath,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
     });
@@ -937,9 +1036,11 @@ class SongsCompanion extends UpdateCompanion<Song> {
   SongsCompanion copyWith({
     Value<int>? id,
     Value<String>? title,
-    Value<String>? lyrics,
+    Value<String?>? lyrics,
     Value<String?>? category,
     Value<String?>? notes,
+    Value<String?>? photoPaths,
+    Value<String?>? pdfPath,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
   }) {
@@ -949,6 +1050,8 @@ class SongsCompanion extends UpdateCompanion<Song> {
       lyrics: lyrics ?? this.lyrics,
       category: category ?? this.category,
       notes: notes ?? this.notes,
+      photoPaths: photoPaths ?? this.photoPaths,
+      pdfPath: pdfPath ?? this.pdfPath,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -972,6 +1075,12 @@ class SongsCompanion extends UpdateCompanion<Song> {
     if (notes.present) {
       map['notes'] = Variable<String>(notes.value);
     }
+    if (photoPaths.present) {
+      map['photo_paths'] = Variable<String>(photoPaths.value);
+    }
+    if (pdfPath.present) {
+      map['pdf_path'] = Variable<String>(pdfPath.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -989,6 +1098,8 @@ class SongsCompanion extends UpdateCompanion<Song> {
           ..write('lyrics: $lyrics, ')
           ..write('category: $category, ')
           ..write('notes: $notes, ')
+          ..write('photoPaths: $photoPaths, ')
+          ..write('pdfPath: $pdfPath, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -1751,18 +1862,22 @@ typedef $$PeopleTableProcessedTableManager =
 typedef $$SongsTableCreateCompanionBuilder = SongsCompanion Function({
   Value<int> id,
   required String title,
-  required String lyrics,
+  Value<String?> lyrics,
   Value<String?> category,
   Value<String?> notes,
+  Value<String?> photoPaths,
+  Value<String?> pdfPath,
   Value<DateTime> createdAt,
   Value<DateTime> updatedAt,
 });
 typedef $$SongsTableUpdateCompanionBuilder = SongsCompanion Function({
   Value<int> id,
   Value<String> title,
-  Value<String> lyrics,
+  Value<String?> lyrics,
   Value<String?> category,
   Value<String?> notes,
+  Value<String?> photoPaths,
+  Value<String?> pdfPath,
   Value<DateTime> createdAt,
   Value<DateTime> updatedAt,
 });
@@ -1820,6 +1935,16 @@ class $$SongsTableFilterComposer extends Composer<_$AppDatabase, $SongsTable> {
 
   ColumnFilters<String> get notes => $composableBuilder(
     column: $table.notes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get photoPaths => $composableBuilder(
+    column: $table.photoPaths,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pdfPath => $composableBuilder(
+    column: $table.pdfPath,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1893,6 +2018,16 @@ class $$SongsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get photoPaths => $composableBuilder(
+    column: $table.photoPaths,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pdfPath => $composableBuilder(
+    column: $table.pdfPath,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -1927,6 +2062,14 @@ class $$SongsTableAnnotationComposer
 
   GeneratedColumn<String> get notes =>
       $composableBuilder(column: $table.notes, builder: (column) => column);
+
+  GeneratedColumn<String> get photoPaths => $composableBuilder(
+    column: $table.photoPaths,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get pdfPath =>
+      $composableBuilder(column: $table.pdfPath, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -1990,9 +2133,11 @@ class $$SongsTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 Value<String> title = const Value.absent(),
-                Value<String> lyrics = const Value.absent(),
+                Value<String?> lyrics = const Value.absent(),
                 Value<String?> category = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
+                Value<String?> photoPaths = const Value.absent(),
+                Value<String?> pdfPath = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
               }) => SongsCompanion(
@@ -2001,6 +2146,8 @@ class $$SongsTableTableManager
                 lyrics: lyrics,
                 category: category,
                 notes: notes,
+                photoPaths: photoPaths,
+                pdfPath: pdfPath,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
               ),
@@ -2008,9 +2155,11 @@ class $$SongsTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 required String title,
-                required String lyrics,
+                Value<String?> lyrics = const Value.absent(),
                 Value<String?> category = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
+                Value<String?> photoPaths = const Value.absent(),
+                Value<String?> pdfPath = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
               }) => SongsCompanion.insert(
@@ -2019,6 +2168,8 @@ class $$SongsTableTableManager
                 lyrics: lyrics,
                 category: category,
                 notes: notes,
+                photoPaths: photoPaths,
+                pdfPath: pdfPath,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
               ),

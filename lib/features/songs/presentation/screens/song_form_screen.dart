@@ -1,20 +1,19 @@
 import 'package:drift/drift.dart' hide Column;
-import 'dart:io' as java_io;
+import 'dart:io' as io;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/song_categories.dart';
 import '../../../../core/utils/validators.dart';
+import '../../../../core/utils/file_storage_service.dart';
 import '../../../../database/app_database.dart';
 import '../../data/lyrics_api_service.dart';
 import '../providers/songs_providers.dart';
 import '../widgets/lyrics_search_dialog.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:syncfusion_flutter_pdf/pdf.dart' as sync_pdf;
 
 /// Form screen for adding or editing a song.
 class SongFormScreen extends ConsumerStatefulWidget {
@@ -38,7 +37,12 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
   bool _isEditing = false;
   Song? _existingSong;
   String? _lyricsSource;
-  String _scanProgress = '';
+
+  /// Attached photo paths (local copies for offline access).
+  List<String> _photoPaths = [];
+
+  /// Attached PDF path (local copy for offline access).
+  String? _pdfPath;
 
   @override
   void initState() {
@@ -56,9 +60,13 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
       setState(() {
         _existingSong = song;
         _titleController.text = song.title;
-        _lyricsController.text = song.lyrics;
+        _lyricsController.text = song.lyrics ?? '';
         _category = song.category;
         _notesController.text = song.notes ?? '';
+        _photoPaths = song.photoPaths != null && song.photoPaths!.isNotEmpty
+            ? song.photoPaths!.split(',')
+            : [];
+        _pdfPath = song.pdfPath;
       });
     }
   }
@@ -113,8 +121,8 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
     }
   }
 
-  /// Scans an image for text using Google ML Kit.
-  Future<void> _scanLyricsFromImage() async {
+  /// Attach photos directly (no OCR) — copies to local storage for offline.
+  Future<void> _attachPhotos() async {
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -139,45 +147,65 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
     if (source == null || !mounted) return;
 
     final picker = ImagePicker();
-    // High quality image for better OCR on Indic/Gujarati text
-    final pickedFile =
-        await picker.pickImage(source: source, imageQuality: 95);
-    if (pickedFile == null || !mounted) return;
 
-    setState(() => _isFetchingLyrics = true);
+    if (source == ImageSource.gallery) {
+      // Allow picking multiple images from gallery
+      final pickedFiles = await picker.pickMultiImage(imageQuality: 95);
+      if (pickedFiles.isEmpty || !mounted) return;
 
-    final textRecognizer = TextRecognizer();
-    try {
-      final inputImage = InputImage.fromFile(java_io.File(pickedFile.path));
-      final RecognizedText recognizedText =
-          await textRecognizer.processImage(inputImage);
-
-      final scannedText = _cleanOcrText(recognizedText.text);
-
-      if (mounted) {
-        if (scannedText.isNotEmpty) {
-          await _insertLyrics(scannedText, 'Photo Scan');
-        } else {
+      setState(() => _isLoading = true);
+      try {
+        final storage = FileStorageService.instance;
+        for (final file in pickedFiles) {
+          final savedPath = await storage.savePhoto(file.path);
+          _photoPaths.add(savedPath);
+        }
+        setState(() {});
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text(
-                    'No text found. Try a clearer photo with good lighting.')),
+            SnackBar(
+              content: Text(
+                  '📷 ${pickedFiles.length} photo${pickedFiles.length > 1 ? 's' : ''} attached'),
+              backgroundColor: Colors.green.shade700,
+              behavior: SnackBarBehavior.floating,
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
           );
         }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Scan error: $e')));
+    } else {
+      // Camera: take one photo at a time
+      final pickedFile =
+          await picker.pickImage(source: source, imageQuality: 95);
+      if (pickedFile == null || !mounted) return;
+
+      setState(() => _isLoading = true);
+      try {
+        final savedPath =
+            await FileStorageService.instance.savePhoto(pickedFile.path);
+        setState(() => _photoPaths.add(savedPath));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('📷 Photo attached'),
+              backgroundColor: Colors.green.shade700,
+              behavior: SnackBarBehavior.floating,
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
       }
-    } finally {
-      textRecognizer.close();
-      if (mounted) setState(() => _isFetchingLyrics = false);
     }
   }
 
-  /// Scans a PDF for text using direct text extraction (supports Gujarati/Hindi).
-  Future<void> _scanLyricsFromPdf() async {
+  /// Attach a PDF directly (no text extraction) — copies to local storage.
+  Future<void> _attachPdf() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
@@ -188,155 +216,87 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
     final path = result.files.single.path;
     if (path == null) return;
 
-    setState(() {
-      _isFetchingLyrics = true;
-      _scanProgress = 'Extracting text from PDF...';
-    });
-
+    setState(() => _isLoading = true);
     try {
-      final bytes = await java_io.File(path).readAsBytes();
-      final document = sync_pdf.PdfDocument(inputBytes: bytes);
-      
-      final String extractedText = sync_pdf.PdfTextExtractor(document).extractText();
-      document.dispose();
+      // Delete old PDF if replacing
+      if (_pdfPath != null) {
+        await FileStorageService.instance.deleteFile(_pdfPath!);
+      }
 
-      final scannedText = _cleanOcrText(extractedText);
+      final savedPath = await FileStorageService.instance.savePdf(path);
+      setState(() => _pdfPath = savedPath);
 
       if (mounted) {
-        if (scannedText.isNotEmpty) {
-          final lines = scannedText.split('\n').length;
-          await _insertLyrics(
-            scannedText,
-            'PDF Document',
-            successMsg: '✅ PDF text extracted successfully ($lines lines)',
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text(
-                    'No text found. The PDF might be an image instead of a text document.')),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('📄 PDF attached'),
+            backgroundColor: Colors.blue.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('PDF extract error: $e')));
+            .showSnackBar(SnackBar(content: Text('Error attaching PDF: $e')));
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isFetchingLyrics = false;
-          _scanProgress = '';
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  /// Cleans raw OCR output: removes lone page numbers, trims extra blank lines.
-  String _cleanOcrText(String raw) {
-    // Sanitize string to remove null bytes and control characters (except newline/tab)
-    // which can cause SQLite to throw "save errors" during insertion.
-    raw = raw.replaceAll(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'), '');
-    
-    final lines = raw.split('\n');
-    final cleaned = <String>[];
-
-    for (final line in lines) {
-      final trimmed = line.trim();
-      // Skip lone page numbers (e.g. "1", "- 2 -", "Page 3")
-      if (RegExp(r'^(-\s*)?(page\s*)?\d+\s*(-)?$', caseSensitive: false)
-          .hasMatch(trimmed)) continue;
-      // Skip very short noise lines (single chars, dashes)
-      if (trimmed.length == 1 && !RegExp(r'[a-zA-Z\u0A80-\u0AFF\u0900-\u097F]')
-          .hasMatch(trimmed)) continue;
-      cleaned.add(line);
-    }
-
-    // Collapse 3+ consecutive blank lines into 2
-    final result = cleaned.join('\n');
-    return result
-        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-        .trim();
+  /// Remove a photo at [index].
+  Future<void> _removePhoto(int index) async {
+    final path = _photoPaths[index];
+    await FileStorageService.instance.deleteFile(path);
+    setState(() => _photoPaths.removeAt(index));
   }
 
-  /// Inserts [text] into the lyrics field.
-  /// If lyrics already exist, asks the user: Append or Replace.
-  Future<void> _insertLyrics(
-    String text,
-    String source, {
-    String? successMsg,
-  }) async {
-    final existing = _lyricsController.text.trim();
-
-    if (existing.isNotEmpty) {
-      // Ask user: append or replace
-      final choice = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Lyrics Already Exist'),
-          content: const Text(
-              'Do you want to add the scanned text to the existing lyrics, '
-              'or replace them entirely?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false), // replace
-              child: const Text('Replace'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true), // append
-              child: const Text('Append'),
-            ),
-          ],
-        ),
-      );
-      if (!mounted) return;
-      if (choice == null) return; // dismissed
-
-      setState(() {
-        _lyricsController.text =
-            choice ? '$existing\n\n$text' : text;
-        _lyricsSource = source;
-      });
-    } else {
-      setState(() {
-        _lyricsController.text = text;
-        _lyricsSource = source;
-      });
+  /// Remove the attached PDF.
+  Future<void> _removePdf() async {
+    if (_pdfPath != null) {
+      await FileStorageService.instance.deleteFile(_pdfPath!);
+      setState(() => _pdfPath = null);
     }
-
-    // Move cursor to end so user sees the inserted text
-    _lyricsController.selection = TextSelection.collapsed(
-        offset: _lyricsController.text.length);
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(successMsg ?? '✅ Lyrics loaded from $source'),
-        backgroundColor: source == 'PDF Scan'
-            ? Colors.blue.shade700
-            : Colors.green.shade700,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // At least one of lyrics, photos, or PDF must be provided
+    final hasLyrics = _lyricsController.text.trim().isNotEmpty;
+    final hasPhotos = _photoPaths.isNotEmpty;
+    final hasPdf = _pdfPath != null;
+
+    if (!hasLyrics && !hasPhotos && !hasPdf) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please add lyrics, photos, or a PDF'),
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
+      final photosValue = _photoPaths.isNotEmpty ? _photoPaths.join(',') : null;
+
       if (_isEditing && _existingSong != null) {
         final companion = SongsCompanion(
           id: Value(_existingSong!.id),
           title: Value(_titleController.text.trim()),
-          lyrics: Value(_lyricsController.text.trim()),
+          lyrics: Value(_lyricsController.text.trim().isEmpty
+              ? null
+              : _lyricsController.text.trim()),
           category: Value(_category),
           notes: Value(_notesController.text.trim().isEmpty
               ? null
               : _notesController.text.trim()),
+          photoPaths: Value(photosValue),
+          pdfPath: Value(_pdfPath),
           createdAt: Value(_existingSong!.createdAt),
           updatedAt: Value(DateTime.now()),
         );
@@ -350,11 +310,15 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
       } else {
         final companion = SongsCompanion(
           title: Value(_titleController.text.trim()),
-          lyrics: Value(_lyricsController.text.trim()),
+          lyrics: Value(_lyricsController.text.trim().isEmpty
+              ? null
+              : _lyricsController.text.trim()),
           category: Value(_category),
           notes: Value(_notesController.text.trim().isEmpty
               ? null
               : _notesController.text.trim()),
+          photoPaths: Value(photosValue),
+          pdfPath: Value(_pdfPath),
         );
         final id = await createSong(ref, companion);
         if (mounted) {
@@ -416,7 +380,7 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Search lyrics button (AI-powered)
+            // ── Attach Photos & PDF buttons ──
             Row(
               children: [
                 Expanded(
@@ -431,17 +395,17 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
                 Expanded(
                   flex: 2,
                   child: OutlinedButton.icon(
-                    onPressed: _isFetchingLyrics ? null : _scanLyricsFromImage,
-                    icon: const Icon(Icons.camera_alt),
-                    label: const Text('Scan'),
+                    onPressed: _isLoading ? null : _attachPhotos,
+                    icon: const Icon(Icons.add_photo_alternate_rounded),
+                    label: const Text('Photos'),
                   ).animate().fadeIn(duration: 400.ms, delay: 100.ms),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   flex: 2,
                   child: OutlinedButton.icon(
-                    onPressed: _isFetchingLyrics ? null : _scanLyricsFromPdf,
-                    icon: const Icon(Icons.picture_as_pdf_rounded),
+                    onPressed: _isLoading ? null : _attachPdf,
+                    icon: const Icon(Icons.attach_file_rounded),
                     label: const Text('PDF'),
                   ).animate().fadeIn(duration: 400.ms, delay: 200.ms),
                 ),
@@ -462,9 +426,7 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
                       decoration: BoxDecoration(
                         color: _lyricsSource == 'Groq AI'
                             ? Colors.amber.shade100
-                            : _lyricsSource == 'PDF Scan'
-                                ? Colors.blue.shade100
-                                : Colors.green.shade100,
+                            : Colors.green.shade100,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(
@@ -473,15 +435,11 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
                           Icon(
                             _lyricsSource == 'Groq AI'
                                 ? Icons.auto_awesome
-                                : _lyricsSource == 'PDF Scan'
-                                    ? Icons.picture_as_pdf_rounded
-                                    : Icons.cloud_done,
+                                : Icons.cloud_done,
                             size: 14,
                             color: _lyricsSource == 'Groq AI'
                                 ? Colors.amber.shade800
-                                : _lyricsSource == 'PDF Scan'
-                                    ? Colors.blue.shade800
-                                    : Colors.green.shade800,
+                                : Colors.green.shade800,
                           ),
                           const SizedBox(width: 4),
                           Text(
@@ -491,9 +449,7 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
                               fontWeight: FontWeight.w600,
                               color: _lyricsSource == 'Groq AI'
                                   ? Colors.amber.shade800
-                                  : _lyricsSource == 'PDF Scan'
-                                      ? Colors.blue.shade800
-                                      : Colors.green.shade800,
+                                  : Colors.green.shade800,
                             ),
                           ),
                         ],
@@ -512,9 +468,207 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
                   ],
                 ),
               ),
+
+            // ── Attached Photos Preview ──
+            if (_photoPaths.isNotEmpty) ...[
+              _buildSectionLabel(theme, Icons.photo_library_rounded,
+                  'Attached Photos (${_photoPaths.length})', Colors.teal),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 120,
+                child: ReorderableListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _photoPaths.length + 1, // +1 for "Add More" button
+                  onReorder: (oldIndex, newIndex) {
+                    // Don't reorder the "Add More" button
+                    if (oldIndex >= _photoPaths.length ||
+                        newIndex > _photoPaths.length) return;
+                    setState(() {
+                      if (newIndex > oldIndex) newIndex--;
+                      final item = _photoPaths.removeAt(oldIndex);
+                      _photoPaths.insert(newIndex, item);
+                    });
+                  },
+                  proxyDecorator: (child, index, animation) {
+                    return Material(
+                      color: Colors.transparent,
+                      elevation: 4,
+                      child: child,
+                    );
+                  },
+                  itemBuilder: (context, index) {
+                    // "Add More" button at the end
+                    if (index == _photoPaths.length) {
+                      return Container(
+                        key: const ValueKey('add_more_photo'),
+                        width: 100,
+                        margin: const EdgeInsets.only(right: 8),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: theme.colorScheme.primary
+                                .withValues(alpha: 0.3),
+                            width: 2,
+                            strokeAlign: BorderSide.strokeAlignInside,
+                          ),
+                          color: theme.colorScheme.primary
+                              .withValues(alpha: 0.05),
+                        ),
+                        child: InkWell(
+                          onTap: _attachPhotos,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.add_photo_alternate_rounded,
+                                size: 32,
+                                color: theme.colorScheme.primary,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Add More',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+
+                    final path = _photoPaths[index];
+                    return Container(
+                      key: ValueKey(path),
+                      width: 100,
+                      margin: const EdgeInsets.only(right: 8),
+                      child: Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: io.File(path).existsSync()
+                                ? Image.file(
+                                    io.File(path),
+                                    width: 100,
+                                    height: 120,
+                                    fit: BoxFit.cover,
+                                  )
+                                : Container(
+                                    width: 100,
+                                    height: 120,
+                                    color: Colors.grey.shade200,
+                                    child: const Icon(
+                                        Icons.broken_image_rounded),
+                                  ),
+                          ),
+                          // Page number badge
+                          Positioned(
+                            bottom: 4,
+                            left: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.6),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                'Page ${index + 1}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                          // Remove button
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: GestureDetector(
+                              onTap: () => _removePhoto(index),
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.withValues(alpha: 0.8),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.close,
+                                  size: 14,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            // ── Attached PDF Preview ──
+            if (_pdfPath != null) ...[
+              _buildSectionLabel(theme, Icons.picture_as_pdf_rounded,
+                  'Attached PDF', Colors.red),
+              const SizedBox(height: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: Colors.red.shade200.withValues(alpha: 0.5)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.picture_as_pdf_rounded,
+                        color: Colors.red.shade700, size: 32),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'PDF Document',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: Colors.red.shade900,
+                            ),
+                          ),
+                          Text(
+                            _pdfPath!.split('/').last.split('\\').last,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.red.shade700,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _removePdf,
+                      icon: Icon(Icons.delete_outline_rounded,
+                          color: Colors.red.shade700),
+                      tooltip: 'Remove PDF',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             
-            // Loading banner while scanning — field stays mounted below
-            if (_isFetchingLyrics)
+            // Loading indicator
+            if (_isLoading && _photoPaths.isEmpty && _pdfPath == null)
               Container(
                 margin: const EdgeInsets.only(bottom: 8),
                 padding:
@@ -545,9 +699,7 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        _scanProgress.isNotEmpty
-                            ? _scanProgress
-                            : 'Processing...',
+                        'Saving files...',
                         style:
                             Theme.of(context).textTheme.bodySmall?.copyWith(
                                   color: Theme.of(context).colorScheme.primary,
@@ -562,14 +714,13 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
             // Lyrics field — ALWAYS mounted so the controller value is preserved
             TextFormField(
               controller: _lyricsController,
-              validator: Validators.validateLyrics,
               maxLines: null,   // Expands to show ALL lyrics (no clipping)
               minLines: 8,
               textCapitalization: TextCapitalization.sentences,
               decoration: InputDecoration(
-                labelText: 'Lyrics *',
+                labelText: 'Lyrics (optional)',
                 hintText:
-                    'Enter song lyrics...\n\nYou can type, search with AI, scan a photo, or import from PDF.',
+                    'Enter song lyrics...\n\nYou can also attach photos or a PDF instead.',
                 prefixIcon: const Icon(Icons.lyrics),
                 alignLabelWithHint: true,
                 enabled: !_isFetchingLyrics,
@@ -605,6 +756,23 @@ class _SongFormScreenState extends ConsumerState<SongFormScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSectionLabel(
+      ThemeData theme, IconData icon, String label, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
 }

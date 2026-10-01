@@ -125,6 +125,8 @@ class SettingsScreen extends ConsumerWidget {
                   'lyrics': s.lyrics,
                   'category': s.category,
                   'notes': s.notes,
+                  'photoPaths': s.photoPaths,
+                  'pdfPath': s.pdfPath,
                   'createdAt': s.createdAt.toIso8601String(),
                   'updatedAt': s.updatedAt.toIso8601String(),
                 })
@@ -258,9 +260,11 @@ class SettingsScreen extends ConsumerWidget {
           await db.into(db.songs).insert(
                 SongsCompanion.insert(
                   title: map['title'] as String,
-                  lyrics: map['lyrics'] as String,
+                  lyrics: Value(map['lyrics'] as String?),
                   category: Value(map['category'] as String?),
                   notes: Value(map['notes'] as String?),
+                  photoPaths: Value(map['photoPaths'] as String?),
+                  pdfPath: Value(map['pdfPath'] as String?),
                   createdAt:
                       Value(DateTime.parse(map['createdAt'] as String)),
                   updatedAt:

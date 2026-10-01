@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:open_filex/open_filex.dart';
 
 import '../../../../core/utils/age_calculator.dart';
 import '../../../../core/widgets/confirm_dialog.dart';
@@ -13,6 +15,7 @@ import '../providers/songs_providers.dart';
 import '../../../people/presentation/providers/person_songs_providers.dart';
 import '../widgets/singer_picker_dialog.dart';
 import 'lyrics_full_screen.dart';
+import 'photo_gallery_screen.dart';
 
 /// Screen showing detailed information and lyrics for a song.
 class SongDetailsScreen extends ConsumerWidget {
@@ -35,6 +38,14 @@ class SongDetailsScreen extends ConsumerWidget {
             body: const Center(child: Text('Song not found')),
           );
         }
+
+        // Parse photo paths
+        final photoPaths = song.photoPaths != null && song.photoPaths!.isNotEmpty
+            ? song.photoPaths!.split(',')
+            : <String>[];
+        final hasPhotos = photoPaths.isNotEmpty;
+        final hasPdf = song.pdfPath != null && song.pdfPath!.isNotEmpty;
+        final hasLyrics = song.lyrics != null && song.lyrics!.isNotEmpty;
 
         return Scaffold(
           body: CustomScrollView(
@@ -113,35 +124,37 @@ class SongDetailsScreen extends ConsumerWidget {
                   ),
                 ),
                 actions: [
-                  IconButton(
-                    icon: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface.withValues(alpha: 0.5),
-                        shape: BoxShape.circle,
+                  if (hasLyrics)
+                    IconButton(
+                      icon: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface.withValues(alpha: 0.5),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.copy_rounded, size: 20),
                       ),
-                      child: const Icon(Icons.copy_rounded, size: 20),
+                      tooltip: 'Copy Lyrics',
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: '${song.title}\n\n${song.lyrics}'));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Lyrics copied to clipboard')),
+                        );
+                      },
                     ),
-                    tooltip: 'Copy Lyrics',
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: '${song.title}\n\n${song.lyrics}'));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Lyrics copied to clipboard')),
-                      );
-                    },
-                  ),
-                  IconButton(
-                    icon: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface.withValues(alpha: 0.5),
-                        shape: BoxShape.circle,
+                  if (hasLyrics)
+                    IconButton(
+                      icon: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface.withValues(alpha: 0.5),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.share_rounded, size: 20),
                       ),
-                      child: const Icon(Icons.share_rounded, size: 20),
+                      tooltip: 'Share',
+                      onPressed: () => Share.share('${song.title}\n\n${song.lyrics}', subject: song.title),
                     ),
-                    tooltip: 'Share',
-                    onPressed: () => Share.share('${song.title}\n\n${song.lyrics}', subject: song.title),
-                  ),
                   IconButton(
                     icon: Container(
                       padding: const EdgeInsets.all(8),
@@ -200,153 +213,383 @@ class SongDetailsScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Lyrics Card — tap to open full-screen reader
-                      Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: () => LyricsFullScreen.show(
-                            context,
-                            title: song.title,
-                            lyrics: song.lyrics,
-                          ),
-                          borderRadius: BorderRadius.circular(24),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? Colors.white.withValues(alpha: 0.03)
-                                  : Colors.white,
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(
-                                color: theme.colorScheme.outlineVariant
-                                    .withValues(alpha: 0.2),
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: theme.colorScheme.shadow
-                                      .withValues(alpha: 0.05),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 4),
+                      // ── Photo Gallery Section ──
+                      if (hasPhotos) ...[
+                        _SectionHeader(
+                          icon: Icons.photo_library_rounded,
+                          label: 'Photos (${photoPaths.length} pages)',
+                          color: Colors.teal,
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          height: 200,
+                          child: ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: photoPaths.length,
+                            itemBuilder: (context, index) {
+                              final path = photoPaths[index];
+                              final file = File(path);
+                              return GestureDetector(
+                                onTap: () => PhotoGalleryScreen.show(
+                                  context,
+                                  photoPaths: photoPaths,
+                                  title: song.title,
+                                  initialIndex: index,
                                 ),
-                              ],
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Header row with 'full screen' hint
-                                Row(
-                                  children: [
-                                    const Icon(Icons.lyrics_rounded,
-                                        size: 20,
-                                        color: AppColors.songsGradientStart),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Lyrics',
-                                      style:
-                                          theme.textTheme.titleMedium?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.songsGradientStart,
-                                      ),
-                                    ),
-                                    const Spacer(),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 10, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.songsGradientStart
+                                child: Container(
+                                  width: 150,
+                                  margin: const EdgeInsets.only(right: 12),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(16),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: theme.colorScheme.shadow
                                             .withValues(alpha: 0.1),
-                                        borderRadius: BorderRadius.circular(20),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
                                       ),
-                                      child: const Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.open_in_full_rounded,
-                                              size: 13,
-                                              color:
-                                                  AppColors.songsGradientStart),
-                                          SizedBox(width: 4),
-                                          Text(
-                                            'Full Screen',
-                                            style: TextStyle(
+                                    ],
+                                  ),
+                                  child: Stack(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: file.existsSync()
+                                            ? Image.file(
+                                                file,
+                                                width: 150,
+                                                height: 200,
+                                                fit: BoxFit.cover,
+                                              )
+                                            : Container(
+                                                width: 150,
+                                                height: 200,
+                                                color: isDark
+                                                    ? Colors.grey.shade800
+                                                    : Colors.grey.shade200,
+                                                child: const Icon(
+                                                  Icons.broken_image_rounded,
+                                                  size: 40,
+                                                ),
+                                              ),
+                                      ),
+                                      // Page badge
+                                      Positioned(
+                                        bottom: 8,
+                                        left: 8,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black
+                                                .withValues(alpha: 0.65),
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                          ),
+                                          child: Text(
+                                            'Page ${index + 1}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
                                               fontSize: 11,
                                               fontWeight: FontWeight.w600,
-                                              color:
-                                                  AppColors.songsGradientStart,
                                             ),
                                           ),
-                                        ],
+                                        ),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-
-                                // Preview text (up to 6 lines) with bottom fade
-                                ShaderMask(
-                                  shaderCallback: (rect) => LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      Colors.black,
-                                      Colors.black,
-                                      Colors.transparent,
+                                      // Expand icon
+                                      Positioned(
+                                        top: 8,
+                                        right: 8,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(6),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black
+                                                .withValues(alpha: 0.5),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Icon(
+                                            Icons.open_in_full_rounded,
+                                            size: 14,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
                                     ],
-                                    stops: const [0.0, 0.6, 1.0],
-                                  ).createShader(rect),
-                                  blendMode: BlendMode.dstIn,
-                                  child: Text(
-                                    song.lyrics,
-                                    maxLines: 7,
-                                    overflow: TextOverflow.clip,
-                                    style: theme.textTheme.bodyLarge?.copyWith(
-                                      height: 1.8,
-                                      fontSize: 15,
-                                    ),
                                   ),
                                 ),
+                              ).animate().fadeIn(
+                                    delay: Duration(
+                                        milliseconds: 100 + (index * 80)),
+                                  );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
 
-                                const SizedBox(height: 14),
-
-                                // Read full lyrics button
-                                Center(
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 20, vertical: 10),
+                      // ── PDF Section ──
+                      if (hasPdf) ...[
+                        _SectionHeader(
+                          icon: Icons.picture_as_pdf_rounded,
+                          label: 'PDF Document',
+                          color: Colors.red,
+                        ),
+                        const SizedBox(height: 12),
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => _openPdf(context, song.pdfPath!),
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.red.shade900.withValues(alpha: 0.2)
+                                    : Colors.red.shade50,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: Colors.red.shade200
+                                      .withValues(alpha: 0.4),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(
-                                      color: AppColors.songsGradientStart
-                                          .withValues(alpha: 0.08),
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(
-                                        color: AppColors.songsGradientStart
-                                            .withValues(alpha: 0.25),
-                                      ),
+                                      color: Colors.red.shade100
+                                          .withValues(alpha: isDark ? 0.2 : 1),
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
+                                    child: Icon(
+                                      Icons.picture_as_pdf_rounded,
+                                      color: Colors.red.shade700,
+                                      size: 32,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        Icon(Icons.menu_book_rounded,
-                                            size: 16,
-                                            color:
-                                                AppColors.songsGradientStart),
-                                        SizedBox(width: 8),
                                         Text(
-                                          'Read Full Lyrics',
+                                          'Tap to open PDF',
                                           style: TextStyle(
-                                            color: AppColors.songsGradientStart,
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                            color: isDark
+                                                ? Colors.red.shade200
+                                                : Colors.red.shade900,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Opens in your PDF viewer app',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: isDark
+                                                ? Colors.red.shade300
+                                                : Colors.red.shade700,
                                           ),
                                         ),
                                       ],
                                     ),
                                   ),
-                                ),
-                              ],
+                                  Icon(
+                                    Icons.open_in_new_rounded,
+                                    color: isDark
+                                        ? Colors.red.shade300
+                                        : Colors.red.shade700,
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
+                        ).animate().fadeIn(delay: 150.ms),
+                        const SizedBox(height: 24),
+                      ],
+
+                      // ── Lyrics Card ──
+                      if (hasLyrics) ...[
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => LyricsFullScreen.show(
+                              context,
+                              title: song.title,
+                              lyrics: song.lyrics!,
+                            ),
+                            borderRadius: BorderRadius.circular(24),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(24),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.white.withValues(alpha: 0.03)
+                                    : Colors.white,
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(
+                                  color: theme.colorScheme.outlineVariant
+                                      .withValues(alpha: 0.2),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: theme.colorScheme.shadow
+                                        .withValues(alpha: 0.05),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Header row with 'full screen' hint
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.lyrics_rounded,
+                                          size: 20,
+                                          color: AppColors.songsGradientStart),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Lyrics',
+                                        style:
+                                            theme.textTheme.titleMedium?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.songsGradientStart,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.songsGradientStart
+                                              .withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.open_in_full_rounded,
+                                                size: 13,
+                                                color:
+                                                    AppColors.songsGradientStart),
+                                            SizedBox(width: 4),
+                                            Text(
+                                              'Full Screen',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                                color:
+                                                    AppColors.songsGradientStart,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 16),
+
+                                  // Preview text (up to 6 lines) with bottom fade
+                                  ShaderMask(
+                                    shaderCallback: (rect) => LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Colors.black,
+                                        Colors.black,
+                                        Colors.transparent,
+                                      ],
+                                      stops: const [0.0, 0.6, 1.0],
+                                    ).createShader(rect),
+                                    blendMode: BlendMode.dstIn,
+                                    child: Text(
+                                      song.lyrics!,
+                                      maxLines: 7,
+                                      overflow: TextOverflow.clip,
+                                      style: theme.textTheme.bodyLarge?.copyWith(
+                                        height: 1.8,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                  ),
+
+                                  const SizedBox(height: 14),
+
+                                  // Read full lyrics button
+                                  Center(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 20, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.songsGradientStart
+                                            .withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: AppColors.songsGradientStart
+                                              .withValues(alpha: 0.25),
+                                        ),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.menu_book_rounded,
+                                              size: 16,
+                                              color:
+                                                  AppColors.songsGradientStart),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            'Read Full Lyrics',
+                                            style: TextStyle(
+                                              color: AppColors.songsGradientStart,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ).animate().fadeIn(delay: 100.ms).slideY(begin: 0.1, end: 0),
+                      ],
+
+                      // Empty state if no content at all
+                      if (!hasLyrics && !hasPhotos && !hasPdf)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.03)
+                                : Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.library_music_outlined,
+                                size: 48,
+                                color: theme.colorScheme.onSurfaceVariant
+                                    .withValues(alpha: 0.4),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'No lyrics, photos, or PDF attached',
+                                style: TextStyle(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ).animate().fadeIn(delay: 100.ms).slideY(begin: 0.1, end: 0),
 
                       if (song.notes != null && song.notes!.isNotEmpty) ...[
 
@@ -539,5 +782,62 @@ class SongDetailsScreen extends ConsumerWidget {
         );
       }
     }
+  }
+
+  /// Opens the PDF using the device's default PDF viewer.
+  static void _openPdf(BuildContext context, String pdfPath) async {
+    final file = File(pdfPath);
+    if (!await file.exists()) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PDF file not found')),
+        );
+      }
+      return;
+    }
+
+    final result = await OpenFilex.open(pdfPath);
+    if (result.type != ResultType.done && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open PDF: ${result.message}')),
+      );
+    }
+  }
+}
+
+/// Section header widget with icon and label.
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 18, color: color),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+        ),
+      ],
+    );
   }
 }

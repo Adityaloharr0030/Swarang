@@ -119,7 +119,7 @@ void main() {
       final id = await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Pankhida Tu Udi Jaje',
-          lyrics: 'Pankhida tu udi jaje...',
+          lyrics: const Value('Pankhida tu udi jaje...'),
           category: const Value('Garba'),
         ),
       );
@@ -134,13 +134,13 @@ void main() {
       await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Tara Vina Shyam',
-          lyrics: 'Tara vina...',
+          lyrics: const Value('Tara vina...'),
         ),
       );
       await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Pankhida',
-          lyrics: 'Pankhida...',
+          lyrics: const Value('Pankhida...'),
         ),
       );
 
@@ -153,14 +153,14 @@ void main() {
       await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Song 1',
-          lyrics: 'Lyrics...',
+          lyrics: const Value('Lyrics...'),
           category: const Value('Garba'),
         ),
       );
       await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Song 2',
-          lyrics: 'Lyrics...',
+          lyrics: const Value('Lyrics...'),
           category: const Value('Dandiya'),
         ),
       );
@@ -183,7 +183,7 @@ void main() {
       final songId = await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Test Song',
-          lyrics: 'Test lyrics...',
+          lyrics: const Value('Test lyrics...'),
         ),
       );
 
@@ -215,7 +215,7 @@ void main() {
       final songId = await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Shared Song',
-          lyrics: 'Shared lyrics...',
+          lyrics: const Value('Shared lyrics...'),
         ),
       );
 
@@ -243,7 +243,7 @@ void main() {
       final songId = await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Test Song',
-          lyrics: 'Lyrics...',
+          lyrics: const Value('Lyrics...'),
         ),
       );
 
@@ -273,7 +273,7 @@ void main() {
       final songId = await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Test Song',
-          lyrics: 'Lyrics...',
+          lyrics: const Value('Lyrics...'),
         ),
       );
 
@@ -301,13 +301,13 @@ void main() {
       final songId1 = await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Song 1',
-          lyrics: 'Lyrics 1...',
+          lyrics: const Value('Lyrics 1...'),
         ),
       );
       final songId2 = await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Song 2',
-          lyrics: 'Lyrics 2...',
+          lyrics: const Value('Lyrics 2...'),
         ),
       );
 
@@ -335,7 +335,7 @@ void main() {
       final songId = await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Test Song',
-          lyrics: 'Lyrics...',
+          lyrics: const Value('Lyrics...'),
         ),
       );
 
@@ -394,7 +394,7 @@ void main() {
       songId1 = await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Pankhida Tu Udi Jaje',
-          lyrics: 'Pankhida...',
+          lyrics: const Value('Pankhida...'),
           category: const Value('Garba'),
         ),
       );
@@ -449,7 +449,7 @@ void main() {
       await db.songsDao.insertSong(
         SongsCompanion.insert(
           title: 'Song',
-          lyrics: 'Lyrics...',
+          lyrics: const Value('Lyrics...'),
         ),
       );
 
