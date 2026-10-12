@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -10,8 +10,8 @@ import '../../../../core/widgets/person_card.dart';
 import '../../../../core/widgets/song_card.dart';
 import '../../../../core/widgets/stat_card.dart';
 import '../../../people/presentation/providers/people_providers.dart';
-import '../../../people/presentation/providers/person_songs_providers.dart';
 import '../../../songs/presentation/providers/songs_providers.dart';
+import '../../../rounds/presentation/providers/rounds_providers.dart';
 
 /// Dashboard / Home screen.
 class DashboardScreen extends ConsumerWidget {
@@ -22,7 +22,8 @@ class DashboardScreen extends ConsumerWidget {
     final isDark = theme.brightness == Brightness.dark;
     final peopleCount = ref.watch(peopleCountProvider);
     final songsCount = ref.watch(songsCountProvider);
-    final assignmentCount = ref.watch(assignmentCountProvider);
+    final roundsCount = ref.watch(roundsCountProvider);
+    final allRounds = ref.watch(allRoundsProvider);
     final recentPeople =
         ref.watch(recentPeopleProvider(AppConstants.recentItemsCount));
     final recentSongs =
@@ -114,13 +115,14 @@ class DashboardScreen extends ConsumerWidget {
                     const SizedBox(width: 10),
                     Expanded(
                       child: StatCard(
-                        label: 'Links',
-                        value: assignmentCount.value?.toString() ?? '—',
-                        icon: Icons.link_rounded,
+                        label: 'Rounds',
+                        value: roundsCount.value?.toString() ?? '—',
+                        icon: Icons.replay_rounded,
                         gradientColors: const [
-                          AppColors.assignGradientStart,
-                          AppColors.assignGradientEnd,
+                          Color(0xFFFF6F00),
+                          Color(0xFFBF360C),
                         ],
+                        onTap: () => context.go('/rounds'),
                       ),
                     ),
                   ],
@@ -153,10 +155,10 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                     const SizedBox(width: 10),
                     _QuickActionButton(
-                      icon: Icons.person_search_rounded,
-                      label: 'Search',
-                      gradient: const [AppColors.assignGradientStart, AppColors.assignGradientEnd],
-                      onTap: () => context.go('/search'),
+                      icon: Icons.replay_rounded,
+                      label: 'New Round',
+                      gradient: const [Color(0xFFFF6F00), Color(0xFFBF360C)],
+                      onTap: () => context.push('/rounds/add'),
                     ),
                   ],
                 ).animate().fadeIn(delay: 200.ms, duration: 400.ms),
@@ -213,6 +215,99 @@ class DashboardScreen extends ConsumerWidget {
                             category: song.category,
                             singerCount: singerCountAsync.value ?? 0,
                             onTap: () => context.push('/songs/${song.id}'),
+                          );
+                        }),
+                      ],
+                    );
+                  },
+                  loading: () => const SizedBox.shrink(),
+                  error: (_, _) => const SizedBox.shrink(),
+                ),
+
+                // Recent rounds
+                allRounds.when(
+                  data: (rounds) {
+                    if (rounds.isEmpty) return const SizedBox.shrink();
+                    final recentList = rounds.take(3).toList();
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 16),
+                        _SectionHeader(
+                          title: 'Rounds',
+                          onSeeAll: () => context.go('/rounds'),
+                        ),
+                        const SizedBox(height: 8),
+                        ...recentList.map((round) {
+                          final peopleCountAsync =
+                              ref.watch(peopleCountForRoundProvider(round.id));
+                          final songCountAsync =
+                              ref.watch(songCountForRoundProvider(round.id));
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(16),
+                                onTap: () => context.push('/rounds/${round.id}'),
+                                child: Ink(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? Colors.white.withValues(alpha: 0.05)
+                                        : theme.colorScheme.surface,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: isDark
+                                          ? Colors.white.withValues(alpha: 0.08)
+                                          : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 42,
+                                        height: 42,
+                                        decoration: BoxDecoration(
+                                          gradient: const LinearGradient(
+                                            colors: [Color(0xFFFF6F00), Color(0xFFBF360C)],
+                                          ),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: const Icon(Icons.replay_rounded, color: Colors.white, size: 22),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              round.name,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 15,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              '${peopleCountAsync.value ?? 0} singers • ${songCountAsync.value ?? 0} songs',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: theme.colorScheme.onSurfaceVariant,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(Icons.chevron_right_rounded,
+                                          color: theme.colorScheme.onSurfaceVariant, size: 20),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
                           );
                         }),
                       ],
@@ -345,12 +440,28 @@ class _DashboardHeaderBackground extends StatefulWidget {
 class _DashboardHeaderBackgroundState
     extends State<_DashboardHeaderBackground> {
   late String _greeting;
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
     _greeting = _getGreetingForHour();
-    _updateGreeting();
+    _timer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) {
+        final newGreeting = _getGreetingForHour();
+        if (newGreeting != _greeting) {
+          setState(() {
+            _greeting = newGreeting;
+          });
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
   }
 
   String _getGreetingForHour() {
@@ -359,18 +470,6 @@ class _DashboardHeaderBackgroundState
     if (hour < 12) return 'Good Morning ☀️';   // 5 AM to 11 AM
     if (hour < 17) return 'Good Afternoon 🌤️'; // 12 PM to 4 PM
     return 'Good Evening 🌙';                  // 5 PM to 11 PM
-  }
-
-  void _updateGreeting() {
-    if (!mounted) return;
-    final newGreeting = _getGreetingForHour();
-    if (newGreeting != _greeting) {
-      setState(() {
-        _greeting = newGreeting;
-      });
-    }
-    // Check again in 1 minute
-    Future.delayed(const Duration(minutes: 1), _updateGreeting);
   }
 
   @override

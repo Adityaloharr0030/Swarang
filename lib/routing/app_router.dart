@@ -8,6 +8,9 @@ import '../features/dashboard/presentation/screens/dashboard_screen.dart';
 import '../features/people/presentation/screens/people_list_screen.dart';
 import '../features/people/presentation/screens/person_details_screen.dart';
 import '../features/people/presentation/screens/person_form_screen.dart';
+import '../features/rounds/presentation/screens/round_detail_screen.dart';
+import '../features/rounds/presentation/screens/round_form_screen.dart';
+import '../features/rounds/presentation/screens/rounds_list_screen.dart';
 import '../features/search/presentation/screens/advanced_search_screen.dart';
 import '../features/search/presentation/screens/global_search_screen.dart';
 import '../features/songs/presentation/screens/song_details_screen.dart';
@@ -111,6 +114,45 @@ final appRouter = GoRouter(
                         final id =
                             int.parse(state.pathParameters['id']!);
                         return SongFormScreen(songId: id);
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+
+        // Rounds tab
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: '/rounds',
+              name: 'rounds',
+              builder: (context, state) => const RoundsListScreen(),
+              routes: [
+                GoRoute(
+                  path: 'add',
+                  name: 'addRound',
+                  parentNavigatorKey: _rootNavigatorKey,
+                  builder: (context, state) => const RoundFormScreen(),
+                ),
+                GoRoute(
+                  path: ':id',
+                  name: 'roundDetail',
+                  parentNavigatorKey: _rootNavigatorKey,
+                  builder: (context, state) {
+                    final id = int.parse(state.pathParameters['id']!);
+                    return RoundDetailScreen(roundId: id);
+                  },
+                  routes: [
+                    GoRoute(
+                      path: 'edit',
+                      name: 'editRound',
+                      parentNavigatorKey: _rootNavigatorKey,
+                      builder: (context, state) {
+                        final id = int.parse(state.pathParameters['id']!);
+                        return RoundFormScreen(roundId: id);
                       },
                     ),
                   ],
@@ -231,18 +273,26 @@ class _ScaffoldWithNavBar extends StatelessWidget {
                     _NavItem(
                       index: 3,
                       currentIndex: navigationShell.currentIndex,
-                      icon: Icons.search_rounded,
-                      selectedIcon: Icons.saved_search_rounded,
-                      label: 'Search',
+                      icon: Icons.loop_outlined,
+                      selectedIcon: Icons.loop_rounded,
+                      label: 'Rounds',
                       onTap: () => _onTap(3),
                     ),
                     _NavItem(
                       index: 4,
                       currentIndex: navigationShell.currentIndex,
+                      icon: Icons.search_rounded,
+                      selectedIcon: Icons.saved_search_rounded,
+                      label: 'Search',
+                      onTap: () => _onTap(4),
+                    ),
+                    _NavItem(
+                      index: 5,
+                      currentIndex: navigationShell.currentIndex,
                       icon: Icons.settings_outlined,
                       selectedIcon: Icons.settings_rounded,
                       label: 'Settings',
-                      onTap: () => _onTap(4),
+                      onTap: () => _onTap(5),
                     ),
                   ],
                 ),

@@ -7,9 +7,13 @@ import 'package:path_provider/path_provider.dart';
 
 import 'daos/people_dao.dart';
 import 'daos/person_songs_dao.dart';
+import 'daos/rounds_dao.dart';
 import 'daos/songs_dao.dart';
 import 'tables/people_table.dart';
 import 'tables/person_songs_table.dart';
+import 'tables/round_people_table.dart';
+import 'tables/round_songs_table.dart';
+import 'tables/rounds_table.dart';
 import 'tables/songs_table.dart';
 
 part 'app_database.g.dart';
@@ -19,8 +23,8 @@ part 'app_database.g.dart';
 /// Uses Drift with SQLite for fully offline local persistence.
 /// Foreign keys are enabled for referential integrity.
 @DriftDatabase(
-  tables: [People, Songs, PersonSongs],
-  daos: [PeopleDao, SongsDao, PersonSongsDao],
+  tables: [People, Songs, PersonSongs, Rounds, RoundPeople, RoundSongs],
+  daos: [PeopleDao, SongsDao, PersonSongsDao, RoundsDao],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
@@ -29,7 +33,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration {
@@ -46,6 +50,12 @@ class AppDatabase extends _$AppDatabase {
         if (from < 3) {
           // Recreate the table to drop the NOT NULL constraint on lyrics.
           await m.alterTable(TableMigration(songs));
+        }
+        if (from < 4) {
+          // Add Round, RoundPeople, and RoundSongs tables.
+          await m.createTable(rounds);
+          await m.createTable(roundPeople);
+          await m.createTable(roundSongs);
         }
       },
       beforeOpen: (details) async {
@@ -83,6 +93,9 @@ class AppDatabase extends _$AppDatabase {
   /// Delete all data from all tables (used during backup restore).
   Future<void> deleteAllData() async {
     await transaction(() async {
+      await delete(roundSongs).go();
+      await delete(roundPeople).go();
+      await delete(rounds).go();
       await delete(personSongs).go();
       await delete(songs).go();
       await delete(people).go();

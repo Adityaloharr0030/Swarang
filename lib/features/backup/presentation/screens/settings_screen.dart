@@ -15,6 +15,7 @@ import '../../../../database/app_database.dart';
 import '../../../people/presentation/providers/people_providers.dart';
 import '../../../people/presentation/providers/person_songs_providers.dart';
 import '../../../songs/presentation/providers/songs_providers.dart';
+import '../../../rounds/presentation/providers/rounds_providers.dart';
 import '../../../../core/theme/theme_provider.dart';
 
 /// Settings screen with backup/restore, theme, and about sections.
@@ -27,6 +28,7 @@ class SettingsScreen extends ConsumerWidget {
     final peopleCount = ref.watch(peopleCountProvider);
     final songsCount = ref.watch(songsCountProvider);
     final assignmentCount = ref.watch(assignmentCountProvider);
+    final roundsCount = ref.watch(roundsCountProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -52,6 +54,7 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: Text(
               'People: ${peopleCount.value ?? "—"} • '
               'Songs: ${songsCount.value ?? "—"} • '
+              'Rounds: ${roundsCount.value ?? "—"} • '
               'Assignments: ${assignmentCount.value ?? "—"}',
             ),
           ),
@@ -101,6 +104,9 @@ class SettingsScreen extends ConsumerWidget {
       final allPeople = await peopleDao.getAllPeople();
       final allSongs = await songsDao.getAllSongs();
       final allAssignments = await personSongsDao.getAllAssignments();
+      final allRounds = await db.roundsDao.getAllRounds();
+      final allRoundPeople = await db.select(db.roundPeople).get();
+      final allRoundSongs = await db.select(db.roundSongs).get();
 
       final backupData = {
         'version': AppConstants.backupVersion,
@@ -138,6 +144,35 @@ class SettingsScreen extends ConsumerWidget {
                   'songId': ps.songId,
                   'notes': ps.notes,
                   'createdAt': ps.createdAt.toIso8601String(),
+                })
+            .toList(),
+        'rounds': allRounds
+            .map((r) => {
+                  'id': r.id,
+                  'name': r.name,
+                  'notes': r.notes,
+                  'date': r.date?.toIso8601String(),
+                  'createdAt': r.createdAt.toIso8601String(),
+                  'updatedAt': r.updatedAt.toIso8601String(),
+                })
+            .toList(),
+        'roundPeople': allRoundPeople
+            .map((rp) => {
+                  'id': rp.id,
+                  'roundId': rp.roundId,
+                  'personId': rp.personId,
+                  'createdAt': rp.createdAt.toIso8601String(),
+                })
+            .toList(),
+        'roundSongs': allRoundSongs
+            .map((rs) => {
+                  'id': rs.id,
+                  'roundId': rs.roundId,
+                  'personId': rs.personId,
+                  'songId': rs.songId,
+                  'tempo': rs.tempo,
+                  'orderIndex': rs.orderIndex,
+                  'createdAt': rs.createdAt.toIso8601String(),
                 })
             .toList(),
       };
@@ -213,6 +248,9 @@ class SettingsScreen extends ConsumerWidget {
       final peopleList = data['people'] as List;
       final songsList = data['songs'] as List;
       final assignmentsList = data['personSongs'] as List;
+      final roundsList = (data['rounds'] as List?) ?? [];
+      final roundPeopleList = (data['roundPeople'] as List?) ?? [];
+      final roundSongsList = (data['roundSongs'] as List?) ?? [];
 
       if (!context.mounted) return;
       final confirmed = await ConfirmDialog.show(
@@ -221,7 +259,8 @@ class SettingsScreen extends ConsumerWidget {
         content: 'This will replace ALL current data with:\n\n'
             '• ${peopleList.length} people\n'
             '• ${songsList.length} songs\n'
-            '• ${assignmentsList.length} assignments\n\n'
+            '• ${assignmentsList.length} assignments\n'
+            '• ${roundsList.length} rounds\n\n'
             'This action cannot be undone.',
         confirmLabel: 'Restore',
         isDestructive: true,
@@ -286,6 +325,53 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               );
         }
+
+        // Import rounds
+        for (final r in roundsList) {
+          final map = r as Map<String, dynamic>;
+          await db.into(db.rounds).insert(
+                RoundsCompanion.insert(
+                  name: map['name'] as String,
+                  notes: Value(map['notes'] as String?),
+                  date: Value(map['date'] != null
+                      ? DateTime.parse(map['date'] as String)
+                      : null),
+                  createdAt:
+                      Value(DateTime.parse(map['createdAt'] as String)),
+                  updatedAt:
+                      Value(DateTime.parse(map['updatedAt'] as String)),
+                ),
+              );
+        }
+
+        // Import round people
+        for (final rp in roundPeopleList) {
+          final map = rp as Map<String, dynamic>;
+          await db.into(db.roundPeople).insert(
+                RoundPeopleCompanion.insert(
+                  roundId: map['roundId'] as int,
+                  personId: map['personId'] as int,
+                  createdAt:
+                      Value(DateTime.parse(map['createdAt'] as String)),
+                ),
+              );
+        }
+
+        // Import round songs
+        for (final rs in roundSongsList) {
+          final map = rs as Map<String, dynamic>;
+          await db.into(db.roundSongs).insert(
+                RoundSongsCompanion.insert(
+                  roundId: map['roundId'] as int,
+                  personId: map['personId'] as int,
+                  songId: map['songId'] as int,
+                  tempo: Value(map['tempo'] as String? ?? 'medium'),
+                  orderIndex: Value(map['orderIndex'] as int? ?? 0),
+                  createdAt:
+                      Value(DateTime.parse(map['createdAt'] as String)),
+                ),
+              );
+        }
       });
 
       // Refresh all providers
@@ -294,6 +380,8 @@ class SettingsScreen extends ConsumerWidget {
       ref.invalidate(peopleCountProvider);
       ref.invalidate(songsCountProvider);
       ref.invalidate(assignmentCountProvider);
+      ref.invalidate(allRoundsProvider);
+      ref.invalidate(roundsCountProvider);
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
