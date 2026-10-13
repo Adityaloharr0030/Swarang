@@ -36,6 +36,7 @@ dependencies:
   google_fonts: ^8.2.1
   image_picker: ^1.2.3
   open_filex: ^4.5.0
+  pdfx: ^2.11.0
 
 dev_dependencies:
   flutter_test:

@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:pdfx/pdfx.dart';
 
 import '../../../../core/widgets/confirm_dialog.dart';
 import '../../../../database/app_database.dart';
@@ -1079,140 +1083,126 @@ class _GallerySongSlide extends ConsumerWidget {
                 ),
               ),
 
-              // Controls row: Photo Attachment Button & Font size controls
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: Row(
-                  children: [
-                    if (photoList.isNotEmpty)
-                      ActionChip(
-                        avatar: const Icon(Icons.photo_library_rounded,
-                            size: 15, color: Colors.white),
-                        label: Text(
-                          '${photoList.length} Sheet Photo${photoList.length > 1 ? 's' : ''}',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        backgroundColor: Colors.teal.shade700,
-                        onPressed: () {
-                          PhotoGalleryScreen.show(
-                            context,
-                            photoPaths: photoList,
-                            title: item.song.title,
-                          );
-                        },
-                      ),
-                    const Spacer(),
-
-                    // Font size adjuster
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        InkWell(
-                          onTap: () {
-                            if (lyricsFontSize > 13) {
-                              onFontSizeChange(lyricsFontSize - 2);
-                            }
-                          },
-                          borderRadius: BorderRadius.circular(6),
-                          child: Padding(
-                            padding: const EdgeInsets.all(4),
-                            child: Icon(Icons.text_decrease_rounded,
-                                size: 18,
-                                color: theme.colorScheme.onSurfaceVariant),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Text(
-                            '${lyricsFontSize.toInt()} pt',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                        InkWell(
-                          onTap: () {
-                            if (lyricsFontSize < 28) {
-                              onFontSizeChange(lyricsFontSize + 2);
-                            }
-                          },
-                          borderRadius: BorderRadius.circular(6),
-                          child: Padding(
-                            padding: const EdgeInsets.all(4),
-                            child: Icon(Icons.text_increase_rounded,
-                                size: 18,
-                                color: theme.colorScheme.onSurfaceVariant),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 6),
-              const Divider(height: 1, indent: 18, endIndent: 18),
-
-              // Scrollable Lyrics View
+              // ── Main Content: Show photos/PDF/lyrics directly like a photo ──
               Expanded(
-                child: hasLyrics
-                    ? Scrollbar(
-                        thumbVisibility: true,
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
-                          child: SelectableText(
-                            item.song.lyrics!,
-                            style: TextStyle(
-                              fontSize: lyricsFontSize,
-                              height: 1.6,
-                              fontWeight: FontWeight.w500,
-                              color: theme.colorScheme.onSurface,
-                              letterSpacing: 0.1,
-                            ),
-                          ),
-                        ),
+                child: photoList.isNotEmpty
+                    // ── PHOTOS: Show inline zoomable photo pages ──
+                    ? _InlinePhotoViewer(
+                        photoPaths: photoList,
+                        songTitle: item.song.title,
+                        hasLyrics: hasLyrics,
+                        lyrics: item.song.lyrics,
+                        lyricsFontSize: lyricsFontSize,
+                        onFontSizeChange: onFontSizeChange,
+                        pdfPath: item.song.pdfPath,
                       )
-                    : Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.lyrics_rounded,
-                                size: 42,
-                                color: theme.colorScheme.onSurfaceVariant
-                                    .withValues(alpha: 0.4),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'No lyrics entered for this song',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: theme.colorScheme.onSurfaceVariant,
+                    : (item.song.pdfPath != null &&
+                            item.song.pdfPath!.trim().isNotEmpty)
+                        // ── PDF: Show rendered PDF document directly like a photo ──
+                        ? _InlinePdfViewer(
+                            pdfPath: item.song.pdfPath!,
+                            songTitle: item.song.title,
+                            hasLyrics: hasLyrics,
+                            lyrics: item.song.lyrics,
+                            lyricsFontSize: lyricsFontSize,
+                            onFontSizeChange: onFontSizeChange,
+                          )
+                        : hasLyrics
+                            // ── LYRICS ONLY: Show lyrics directly ──
+                            ? Column(
+                                children: [
+                                  // Font size controls
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 18, vertical: 4),
+                                    child: Row(
+                                      children: [
+                                        const Spacer(),
+                                        _FontSizeControls(
+                                          fontSize: lyricsFontSize,
+                                          onChanged: onFontSizeChange,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Divider(
+                                      height: 1, indent: 18, endIndent: 18),
+                                  Expanded(
+                                    child: Scrollbar(
+                                      thumbVisibility: true,
+                                      child: SingleChildScrollView(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            18, 12, 18, 16),
+                                        child: SelectableText(
+                                          item.song.lyrics!,
+                                          style: TextStyle(
+                                            fontSize: lyricsFontSize,
+                                            height: 1.6,
+                                            fontWeight: FontWeight.w500,
+                                            color:
+                                                theme.colorScheme.onSurface,
+                                            letterSpacing: 0.1,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            // ── NO CONTENT: Empty state ──
+                            : Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Column(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.library_music_rounded,
+                                        size: 44,
+                                        color: theme.colorScheme
+                                            .onSurfaceVariant
+                                            .withValues(alpha: 0.4),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        'No photo, PDF, or lyrics for this song',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: theme.colorScheme
+                                              .onSurfaceVariant,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'Attach photos, PDF sheet music, or write lyrics',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: theme.colorScheme
+                                              .onSurfaceVariant
+                                              .withValues(alpha: 0.7),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 14),
+                                      OutlinedButton.icon(
+                                        onPressed: () => context.push(
+                                            '/songs/${item.song.id}/edit'),
+                                        icon: const Icon(
+                                            Icons.edit_rounded,
+                                            size: 16),
+                                        label: const Text('Add Content'),
+                                        style: OutlinedButton.styleFrom(
+                                          padding:
+                                              const EdgeInsets.symmetric(
+                                                  horizontal: 16,
+                                                  vertical: 8),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                              const SizedBox(height: 12),
-                              OutlinedButton.icon(
-                                onPressed: () =>
-                                    context.push('/songs/${item.song.id}/edit'),
-                                icon: const Icon(Icons.edit_rounded, size: 16),
-                                label: const Text('Add Lyrics'),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 16, vertical: 8),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
               ),
 
               // Bottom card footer: View full song details
@@ -1261,6 +1251,774 @@ class _GallerySongSlide extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Inline zoomable photo viewer with page indicator, navigation arrows, and optional lyrics toggle.
+class _InlinePhotoViewer extends StatefulWidget {
+  const _InlinePhotoViewer({
+    required this.photoPaths,
+    required this.songTitle,
+    required this.hasLyrics,
+    this.lyrics,
+    required this.lyricsFontSize,
+    required this.onFontSizeChange,
+    this.pdfPath,
+  });
+
+  final List<String> photoPaths;
+  final String songTitle;
+  final bool hasLyrics;
+  final String? lyrics;
+  final double lyricsFontSize;
+  final ValueChanged<double> onFontSizeChange;
+  final String? pdfPath;
+
+  @override
+  State<_InlinePhotoViewer> createState() => _InlinePhotoViewerState();
+}
+
+class _InlinePhotoViewerState extends State<_InlinePhotoViewer> {
+  late PageController _pageController;
+  int _currentPage = 0;
+  bool _showLyrics = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    if (_showLyrics && widget.hasLyrics) {
+      // ── Lyrics overlay mode ──
+      return Column(
+        children: [
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            child: Row(
+              children: [
+                ActionChip(
+                  avatar: const Icon(Icons.photo_rounded,
+                      size: 14, color: Colors.white),
+                  label: const Text('Back to Photos',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white)),
+                  backgroundColor: Colors.teal.shade700,
+                  onPressed: () => setState(() => _showLyrics = false),
+                ),
+                const Spacer(),
+                _FontSizeControls(
+                  fontSize: widget.lyricsFontSize,
+                  onChanged: widget.onFontSizeChange,
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, indent: 14, endIndent: 14),
+          Expanded(
+            child: Scrollbar(
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
+                child: SelectableText(
+                  widget.lyrics!,
+                  style: TextStyle(
+                    fontSize: widget.lyricsFontSize,
+                    height: 1.6,
+                    fontWeight: FontWeight.w500,
+                    color: theme.colorScheme.onSurface,
+                    letterSpacing: 0.1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // ── Photo pages mode ──
+    return Stack(
+      children: [
+        // Zoomable photos with PageView
+        PageView.builder(
+          controller: _pageController,
+          itemCount: widget.photoPaths.length,
+          onPageChanged: (i) => setState(() => _currentPage = i),
+          itemBuilder: (context, index) {
+            final path = widget.photoPaths[index];
+            final file = File(path);
+            return GestureDetector(
+              onTap: () {
+                // Tap to open full-screen gallery at this page
+                PhotoGalleryScreen.show(
+                  context,
+                  photoPaths: widget.photoPaths,
+                  title: widget.songTitle,
+                  initialIndex: index,
+                );
+              },
+              child: InteractiveViewer(
+                minScale: 1.0,
+                maxScale: 4.0,
+                child: file.existsSync()
+                    ? Image.file(
+                        file,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) => Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.broken_image_rounded,
+                                  size: 40,
+                                  color: theme.colorScheme.error),
+                              const SizedBox(height: 8),
+                              Text('Could not load image',
+                                  style: TextStyle(
+                                      color: theme
+                                          .colorScheme.onSurfaceVariant)),
+                            ],
+                          ),
+                        ),
+                      )
+                    : Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.image_not_supported_rounded,
+                                size: 40,
+                                color: theme
+                                    .colorScheme.onSurfaceVariant
+                                    .withValues(alpha: 0.5)),
+                            const SizedBox(height: 8),
+                            Text('Image file not found',
+                                style: TextStyle(
+                                    color: theme
+                                        .colorScheme.onSurfaceVariant)),
+                          ],
+                        ),
+                      ),
+              ),
+            );
+          },
+        ),
+
+        // Navigation arrow (previous photo)
+        if (widget.photoPaths.length > 1 && _currentPage > 0)
+          Positioned(
+            left: 6,
+            top: 0,
+            bottom: 0,
+            child: Center(
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _pageController.previousPage(
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.chevron_left_rounded,
+                        color: Colors.white, size: 22),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        // Navigation arrow (next photo)
+        if (widget.photoPaths.length > 1 &&
+            _currentPage < widget.photoPaths.length - 1)
+          Positioned(
+            right: 6,
+            top: 0,
+            bottom: 0,
+            child: Center(
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _pageController.nextPage(
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.chevron_right_rounded,
+                        color: Colors.white, size: 22),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        // Page indicator (top-right)
+        if (widget.photoPaths.length > 1)
+          Positioned(
+            top: 8,
+            right: 12,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '${_currentPage + 1} / ${widget.photoPaths.length}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+
+        // Tap full-screen hint (top-left)
+        Positioned(
+          top: 8,
+          left: 12,
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.fullscreen_rounded,
+                    size: 14, color: Colors.white70),
+                SizedBox(width: 4),
+                Text(
+                  'Tap to expand',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Show lyrics toggle button (bottom-left) if lyrics exist
+        if (widget.hasLyrics)
+          Positioned(
+            bottom: 8,
+            left: 12,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => setState(() => _showLyrics = true),
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF1C1C24).withValues(alpha: 0.85)
+                        : Colors.white.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant
+                          .withValues(alpha: 0.4),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 6,
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.lyrics_rounded,
+                          size: 14,
+                          color: theme.colorScheme.primary),
+                      const SizedBox(width: 5),
+                      Text(
+                        'View Lyrics',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        // Page dots indicator (bottom-center)
+        if (widget.photoPaths.length > 1)
+          Positioned(
+            bottom: 8,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(
+                widget.photoPaths.length,
+                (i) => GestureDetector(
+                  onTap: () => _pageController.animateToPage(
+                    i,
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                  ),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    width: i == _currentPage ? 18 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: i == _currentPage
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.3),
+                          blurRadius: 3,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Inline zoomable & scrollable PDF viewer that renders PDF pages directly like a photo.
+class _InlinePdfViewer extends StatefulWidget {
+  const _InlinePdfViewer({
+    required this.pdfPath,
+    required this.songTitle,
+    required this.hasLyrics,
+    this.lyrics,
+    required this.lyricsFontSize,
+    required this.onFontSizeChange,
+  });
+
+  final String pdfPath;
+  final String songTitle;
+  final bool hasLyrics;
+  final String? lyrics;
+  final double lyricsFontSize;
+  final ValueChanged<double> onFontSizeChange;
+
+  @override
+  State<_InlinePdfViewer> createState() => _InlinePdfViewerState();
+}
+
+class _InlinePdfViewerState extends State<_InlinePdfViewer> {
+  PdfControllerPinch? _pdfController;
+  int _currentPage = 1;
+  int _pageCount = 0;
+  bool _showLyrics = false;
+  bool _loadError = false;
+  String _errorMessage = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _initController();
+  }
+
+  @override
+  void didUpdateWidget(_InlinePdfViewer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pdfPath != widget.pdfPath) {
+      _pdfController?.dispose();
+      _pdfController = null;
+      _initController();
+    }
+  }
+
+  void _initController() {
+    _loadError = false;
+    _errorMessage = '';
+    _currentPage = 1;
+    _pageCount = 0;
+
+    final file = File(widget.pdfPath);
+    if (!file.existsSync()) {
+      _loadError = true;
+      _errorMessage = 'PDF file not found on device';
+      return;
+    }
+
+    try {
+      _pdfController = PdfControllerPinch(
+        document: PdfDocument.openFile(widget.pdfPath),
+      );
+    } catch (e) {
+      _loadError = true;
+      _errorMessage = e.toString();
+    }
+  }
+
+  @override
+  void dispose() {
+    _pdfController?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    if (_showLyrics && widget.hasLyrics) {
+      // ── Lyrics overlay mode ──
+      return Column(
+        children: [
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            child: Row(
+              children: [
+                ActionChip(
+                  avatar: const Icon(Icons.picture_as_pdf_rounded,
+                      size: 14, color: Colors.white),
+                  label: const Text('Back to PDF',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white)),
+                  backgroundColor: Colors.red.shade700,
+                  onPressed: () => setState(() => _showLyrics = false),
+                ),
+                const Spacer(),
+                _FontSizeControls(
+                  fontSize: widget.lyricsFontSize,
+                  onChanged: widget.onFontSizeChange,
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, indent: 14, endIndent: 14),
+          Expanded(
+            child: Scrollbar(
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
+                child: SelectableText(
+                  widget.lyrics!,
+                  style: TextStyle(
+                    fontSize: widget.lyricsFontSize,
+                    height: 1.6,
+                    fontWeight: FontWeight.w500,
+                    color: theme.colorScheme.onSurface,
+                    letterSpacing: 0.1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (_loadError || _pdfController == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.picture_as_pdf_rounded,
+                  size: 44, color: Colors.red.shade400),
+              const SizedBox(height: 10),
+              Text(
+                'Could not render PDF preview',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+              if (_errorMessage.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  _errorMessage,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                ),
+              ],
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: () => OpenFilex.open(widget.pdfPath),
+                icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                label: const Text('Open in PDF Viewer'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.red.shade700,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Stack(
+      children: [
+        // Directly render the PDF document with vertical scrolling and pinch-to-zoom
+        ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: PdfViewPinch(
+            controller: _pdfController!,
+            scrollDirection: Axis.vertical,
+            backgroundDecoration: BoxDecoration(
+              color: isDark
+                  ? const Color(0xFF141419)
+                  : const Color(0xFFF5F5F7),
+            ),
+            onDocumentLoaded: (doc) {
+              if (mounted) {
+                setState(() => _pageCount = doc.pagesCount);
+              }
+            },
+            onPageChanged: (page) {
+              if (mounted) {
+                setState(() => _currentPage = page);
+              }
+            },
+            builders: PdfViewPinchBuilders<DefaultBuilderOptions>(
+              options: const DefaultBuilderOptions(),
+              documentLoaderBuilder: (_) => const Center(
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+              pageLoaderBuilder: (_) => const Center(
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              errorBuilder: (_, error) => Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.error_outline_rounded,
+                        size: 36, color: theme.colorScheme.error),
+                    const SizedBox(height: 8),
+                    Text('Error displaying page',
+                        style: TextStyle(color: theme.colorScheme.error)),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: () => OpenFilex.open(widget.pdfPath),
+                      icon:
+                          const Icon(Icons.open_in_new_rounded, size: 15),
+                      label: const Text('Open with external app'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // Page indicator (top-right)
+        if (_pageCount > 1)
+          Positioned(
+            top: 8,
+            right: 12,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'Page $_currentPage / $_pageCount',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+
+        // Open in external PDF viewer hint (top-left)
+        Positioned(
+          top: 8,
+          left: 12,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => OpenFilex.open(widget.pdfPath),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.open_in_new_rounded,
+                        size: 13, color: Colors.white70),
+                    SizedBox(width: 4),
+                    Text(
+                      'PDF App',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // Show lyrics toggle button (bottom-left) if lyrics exist
+        if (widget.hasLyrics)
+          Positioned(
+            bottom: 8,
+            left: 12,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => setState(() => _showLyrics = true),
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF1C1C24).withValues(alpha: 0.88)
+                        : Colors.white.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant
+                          .withValues(alpha: 0.4),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 6,
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.lyrics_rounded,
+                          size: 14, color: theme.colorScheme.primary),
+                      const SizedBox(width: 5),
+                      Text(
+                        'View Lyrics',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Compact font size controls widget.
+class _FontSizeControls extends StatelessWidget {
+  const _FontSizeControls({
+    required this.fontSize,
+    required this.onChanged,
+  });
+
+  final double fontSize;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: () {
+            if (fontSize > 13) onChanged(fontSize - 2);
+          },
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Icon(Icons.text_decrease_rounded,
+                size: 18, color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Text(
+            '${fontSize.toInt()} pt',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        InkWell(
+          onTap: () {
+            if (fontSize < 28) onChanged(fontSize + 2);
+          },
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Icon(Icons.text_increase_rounded,
+                size: 18, color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+      ],
     );
   }
 }
