@@ -340,5 +340,58 @@ void main() {
       expect(afterRemove.length, 2);
       expect(afterRemove.any((s) => s.song.id == songFast), isFalse);
     });
+
+    test('RoundsDao multi-round song usage: add same song to multiple rounds with different tempos', () async {
+      final round1Id = await db.roundsDao.insertRound(
+        RoundsCompanion.insert(name: 'Navratri Day 1 - Round 1'),
+      );
+      final round2Id = await db.roundsDao.insertRound(
+        RoundsCompanion.insert(name: 'Navratri Day 1 - Round 2'),
+      );
+
+      final sharedSongId = await db.songsDao.insertSong(
+        SongsCompanion.insert(title: 'Chogada Tara'),
+      );
+      final uniqueSongId = await db.songsDao.insertSong(
+        SongsCompanion.insert(title: 'Kamariya'),
+      );
+
+      // Add shared song to Round 1 as Slow
+      await db.roundsDao.addSongToRound(
+        roundId: round1Id,
+        songId: sharedSongId,
+        tempo: 'slow',
+      );
+
+      // Add unique song to Round 1
+      await db.roundsDao.addSongToRound(
+        roundId: round1Id,
+        songId: uniqueSongId,
+        tempo: 'medium',
+      );
+
+      // Add shared song to Round 2 as Fast
+      await db.roundsDao.addSongToRound(
+        roundId: round2Id,
+        songId: sharedSongId,
+        tempo: 'fast',
+      );
+
+      // Verify getRoundsForSong returns both rounds with respective tempos
+      final usages = await db.roundsDao.getRoundsForSong(sharedSongId);
+      expect(usages.length, 2);
+      expect(usages.any((u) => u.round.id == round1Id && u.entry.tempo == 'slow'), isTrue);
+      expect(usages.any((u) => u.round.id == round2Id && u.entry.tempo == 'fast'), isTrue);
+
+      // Verify unique song only returns 1 round
+      final uniqueUsages = await db.roundsDao.getRoundsForSong(uniqueSongId);
+      expect(uniqueUsages.length, 1);
+      expect(uniqueUsages.first.round.id, round1Id);
+
+      // Verify watchAllSongRoundUsages emits map containing both songs
+      final allUsages = await db.roundsDao.watchAllSongRoundUsages().first;
+      expect(allUsages[sharedSongId]?.length, 2);
+      expect(allUsages[uniqueSongId]?.length, 1);
+    });
   });
 }

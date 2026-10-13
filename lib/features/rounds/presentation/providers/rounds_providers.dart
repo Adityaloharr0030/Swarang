@@ -58,6 +58,18 @@ final songCountForRoundProvider =
   return ref.watch(roundsDaoProvider).watchSongsCountInRound(roundId);
 });
 
+/// Watches all song usages across all rounds, grouped by songId.
+final allSongRoundUsagesProvider =
+    StreamProvider<Map<int, List<SongRoundUsage>>>((ref) {
+  return ref.watch(roundsDaoProvider).watchAllSongRoundUsages();
+});
+
+/// Watches all rounds where a specific song is used.
+final roundsForSongProvider =
+    StreamProvider.family<List<SongRoundUsage>, int>((ref, songId) {
+  return ref.watch(roundsDaoProvider).watchRoundsForSong(songId);
+});
+
 /// Watches people count for a round.
 final peopleCountForRoundProvider =
     StreamProvider.family<int, int>((ref, roundId) {
@@ -265,6 +277,8 @@ Future<void> addSongToRound(
   ref.invalidate(songsForRoundProvider(roundId));
   ref.invalidate(songCountForRoundProvider(roundId));
   ref.invalidate(tempoCountsForRoundProvider(roundId));
+  ref.invalidate(allSongRoundUsagesProvider);
+  ref.invalidate(roundsForSongProvider(songId));
 }
 
 /// Remove a song directly from a round.
@@ -278,6 +292,8 @@ Future<void> removeSongFromRound(
   ref.invalidate(songsForRoundProvider(roundId));
   ref.invalidate(songCountForRoundProvider(roundId));
   ref.invalidate(tempoCountsForRoundProvider(roundId));
+  ref.invalidate(allSongRoundUsagesProvider);
+  ref.invalidate(roundsForSongProvider(songId));
 }
 
 /// Reorder songs within a round.

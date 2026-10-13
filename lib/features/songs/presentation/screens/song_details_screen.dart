@@ -13,6 +13,8 @@ import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../providers/songs_providers.dart';
 import '../../../people/presentation/providers/person_songs_providers.dart';
+import '../../../rounds/presentation/providers/rounds_providers.dart';
+import '../../../rounds/presentation/widgets/tempo_visuals.dart';
 import '../widgets/singer_picker_dialog.dart';
 import 'lyrics_full_screen.dart';
 import 'photo_gallery_screen.dart';
@@ -27,6 +29,8 @@ class SongDetailsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final songAsync = ref.watch(songByIdProvider(songId));
     final singersAsync = ref.watch(peopleForSongProvider(songId));
+    final roundsAsync = ref.watch(roundsForSongProvider(songId));
+    final roundUsages = roundsAsync.value ?? [];
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -626,6 +630,153 @@ class SongDetailsScreen extends ConsumerWidget {
                             ],
                           ),
                         ).animate().fadeIn(delay: 150.ms),
+                      ],
+                      
+                      // ── Performance Rounds Section ──
+                      if (roundUsages.isNotEmpty) ...[
+                        const SizedBox(height: 32),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFF6F00).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.repeat_rounded,
+                                size: 20,
+                                color: Color(0xFFFF6F00),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'Performance Rounds',
+                                        style: theme.textTheme.titleLarge?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFF6F00).withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Text(
+                                          '${roundUsages.length}',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFFFF6F00),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Text(
+                                    'This song is featured in ${roundUsages.length} round${roundUsages.length > 1 ? 's' : ''}',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: roundUsages.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 8),
+                          itemBuilder: (context, index) {
+                            final usage = roundUsages[index];
+                            final tempo = usage.entry.tempo;
+                            final cfg = GarbaTempoConfig.from(tempo);
+                            return Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => context.push('/rounds/${usage.round.id}'),
+                                borderRadius: BorderRadius.circular(14),
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? Colors.white.withValues(alpha: 0.03)
+                                        : theme.colorScheme.surfaceContainerLow,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: cfg.color.withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: cfg.color.withValues(alpha: isDark ? 0.2 : 0.12),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          cfg.icon,
+                                          size: 18,
+                                          color: cfg.color,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              usage.round.name,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Row(
+                                              children: [
+                                                TempoBadge(
+                                                  tempo: tempo,
+                                                  compact: true,
+                                                ),
+                                                if (usage.round.date != null) ...[
+                                                  const SizedBox(width: 8),
+                                                  Text(
+                                                    '${usage.round.date!.day}/${usage.round.date!.month}/${usage.round.date!.year}',
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: theme.colorScheme.onSurfaceVariant,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(
+                                        Icons.arrow_forward_ios_rounded,
+                                        size: 14,
+                                        color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ],
                       
                       const SizedBox(height: 32),

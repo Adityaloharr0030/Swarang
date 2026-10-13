@@ -12,8 +12,8 @@ import '../providers/rounds_providers.dart';
 import '../widgets/tempo_visuals.dart';
 
 /// Round Detail screen — Gallery Swipe song experience for live performance.
-/// Songs are added directly to the round and musicians can swipe horizontally
-/// like a photo gallery to move between songs, view lyrics, and adjust tempos.
+/// Songs can be used across multiple rounds. When picking or viewing a song,
+/// the app visually notifies you of which other rounds feature this song.
 class RoundDetailScreen extends ConsumerStatefulWidget {
   const RoundDetailScreen({super.key, required this.roundId});
 
@@ -71,7 +71,6 @@ class _RoundDetailScreenState extends ConsumerState<RoundDetailScreen> {
 
         return songsAsync.when(
           data: (songs) {
-            // Keep index within bounds
             if (_currentSongIndex >= songs.length && songs.isNotEmpty) {
               _currentSongIndex = songs.length - 1;
             }
@@ -232,7 +231,7 @@ class _RoundDetailScreenState extends ConsumerState<RoundDetailScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Add songs to this round to create a live setlist. Once added, you can swipe through lyrics and tempos like a photo gallery!',
+              'Add songs to build your performance setlist. You can use any song across multiple rounds and swipe through them like a gallery.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
@@ -569,7 +568,6 @@ class _RoundDetailScreenState extends ConsumerState<RoundDetailScreen> {
             children: List.generate(
               songs.length > 9 ? 9 : songs.length,
               (dotIdx) {
-                // If many songs, show window around current
                 final bool isActive;
                 if (songs.length <= 9) {
                   isActive = dotIdx == _currentSongIndex;
@@ -658,7 +656,8 @@ class _RoundDetailScreenState extends ConsumerState<RoundDetailScreen> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => _SongPickerSheet(
         available: available,
-        onAdd: (song, tempo) async {
+        currentRoundId: widget.roundId,
+        onAdd: (song, tempo, otherUsages) async {
           await addSongToRound(
             ref,
             roundId: widget.roundId,
@@ -667,13 +666,53 @@ class _RoundDetailScreenState extends ConsumerState<RoundDetailScreen> {
           );
           if (ctx.mounted) {
             Navigator.pop(ctx);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                    'Added "${song.title}" (${GarbaTempoConfig.from(tempo).label}) to round'),
-                duration: const Duration(seconds: 2),
-              ),
-            );
+            final tempoCfg = GarbaTempoConfig.from(tempo);
+
+            if (otherUsages.isNotEmpty) {
+              final otherNames = otherUsages
+                  .map((u) => '${u.round.name} (${GarbaTempoConfig.from(u.entry.tempo).label})')
+                  .join(', ');
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.repeat_rounded,
+                            color: Colors.white, size: 18),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Added "${song.title}" (${tempoCfg.label})\n💡 Note: Also used in $otherNames',
+                          style: const TextStyle(fontSize: 12.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: const Color(0xFF1565C0),
+                  duration: const Duration(seconds: 4),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                      'Added "${song.title}" (${tempoCfg.label}) to round'),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+              );
+            }
           }
         },
       ),
@@ -696,9 +735,152 @@ class _RoundDetailScreenState extends ConsumerState<RoundDetailScreen> {
   }
 }
 
+// ─── Modal Sheet for Song Multi-Round Usages ──────────────────────────────────
+
+void showOtherRoundsSheet(
+  BuildContext context,
+  String songTitle,
+  List<SongRoundUsage> usages,
+) {
+  final theme = Theme.of(context);
+  final isDark = theme.brightness == Brightness.dark;
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (ctx) => Container(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E28) : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E88E5).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.repeat_rounded,
+                    color: Color(0xFF1E88E5), size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      songTitle,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      'Used in ${usages.length} other round${usages.length == 1 ? '' : 's'}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ...usages.map((u) {
+            final cfg = GarbaTempoConfig.from(u.entry.tempo);
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.04)
+                    : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: cfg.color.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: cfg.color.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(cfg.icon, color: cfg.color, size: 18),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          u.round.name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${cfg.label} • ${cfg.garbaType}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: cfg.color,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TempoBadge(
+                      tempo: u.entry.tempo, compact: true, showSpeedMeter: true),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                    tooltip: 'Open Round',
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      context.push('/rounds/${u.round.id}');
+                    },
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    ),
+  );
+}
+
 // ─── Gallery Song Slide (Full Card in Swipe PageView) ─────────────────────────
 
-class _GallerySongSlide extends StatelessWidget {
+class _GallerySongSlide extends ConsumerWidget {
   const _GallerySongSlide({
     required this.item,
     required this.index,
@@ -720,7 +902,7 @@ class _GallerySongSlide extends StatelessWidget {
   final ValueChanged<String> onTempoChange;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final cfg = GarbaTempoConfig.from(item.entry.tempo);
@@ -736,6 +918,12 @@ class _GallerySongSlide extends StatelessWidget {
 
     final hasLyrics =
         item.song.lyrics != null && item.song.lyrics!.trim().isNotEmpty;
+
+    // Multi-round usages for this song in other rounds
+    final allUsages =
+        ref.watch(roundsForSongProvider(item.song.id)).value ?? [];
+    final otherRounds =
+        allUsages.where((u) => u.round.id != roundId).toList();
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
@@ -866,7 +1054,7 @@ class _GallerySongSlide extends StatelessWidget {
                 ),
               ),
 
-              // Title section
+              // Title section & multi-round notification
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
                 child: Column(
@@ -892,6 +1080,71 @@ class _GallerySongSlide extends StatelessWidget {
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+
+                    // Multi-round notification banner on the slide
+                    if (otherRounds.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      InkWell(
+                        onTap: () => showOtherRoundsSheet(
+                            context, item.song.title, otherRounds),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1976D2)
+                                .withValues(alpha: isDark ? 0.2 : 0.08),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: const Color(0xFF1976D2)
+                                  .withValues(alpha: 0.35),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.repeat_rounded,
+                                  size: 15, color: Color(0xFF1E88E5)),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text.rich(
+                                  TextSpan(
+                                    text: 'Also used in: ',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDark
+                                          ? Colors.blue.shade200
+                                          : const Color(0xFF1565C0),
+                                    ),
+                                    children: otherRounds.map((u) {
+                                      final c =
+                                          GarbaTempoConfig.from(u.entry.tempo);
+                                      return TextSpan(
+                                        text:
+                                            '${u.round.name} (${c.label})  ',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          color: c.color,
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Icon(
+                                Icons.info_outline_rounded,
+                                size: 14,
+                                color: isDark
+                                    ? Colors.blue.shade200
+                                    : const Color(0xFF1565C0),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ],
@@ -1413,6 +1666,11 @@ class _SongEntryCard extends ConsumerWidget {
     final isDark = theme.brightness == Brightness.dark;
     final cfg = GarbaTempoConfig.from(item.entry.tempo);
 
+    final allUsages =
+        ref.watch(roundsForSongProvider(item.song.id)).value ?? [];
+    final otherRounds =
+        allUsages.where((u) => u.round.id != roundId).toList();
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Container(
@@ -1454,7 +1712,7 @@ class _SongEntryCard extends ConsumerWidget {
               ListTile(
                 onTap: () => context.push('/songs/${item.song.id}'),
                 contentPadding: const EdgeInsets.only(
-                    left: 14, right: 10, top: 3, bottom: 3),
+                    left: 14, right: 10, top: 4, bottom: 4),
                 leading: Container(
                   width: 32,
                   height: 32,
@@ -1484,37 +1742,64 @@ class _SongEntryCard extends ConsumerWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                subtitle: Row(
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (item.song.category != null &&
-                        item.song.category!.isNotEmpty) ...[
-                      Flexible(
-                        child: Text(
-                          item.song.category!,
+                    Row(
+                      children: [
+                        if (item.song.category != null &&
+                            item.song.category!.isNotEmpty) ...[
+                          Flexible(
+                            child: Text(
+                              item.song.category!,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text('•',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: theme.colorScheme.onSurfaceVariant
+                                      .withValues(alpha: 0.5))),
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          cfg.garbaType,
                           style: TextStyle(
                             fontSize: 11,
-                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                            color: cfg.color,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text('•',
-                          style: TextStyle(
-                              fontSize: 11,
-                              color: theme.colorScheme.onSurfaceVariant
-                                  .withValues(alpha: 0.5))),
-                      const SizedBox(width: 4),
-                    ],
-                    Text(
-                      cfg.garbaType,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: cfg.color,
-                      ),
+                      ],
                     ),
+                    if (otherRounds.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          const Icon(Icons.repeat_rounded,
+                              size: 12, color: Color(0xFF1E88E5)),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              'Also in: ${otherRounds.map((u) => u.round.name).join(', ')}',
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF1E88E5),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
                 trailing: Row(
@@ -1567,38 +1852,66 @@ class _SongEntryCard extends ConsumerWidget {
   }
 }
 
-// ─── Song Picker Bottom Sheet ─────────────────────────────────────────────────
+// ─── Song Picker Bottom Sheet (With Multi-Round Indicator & Filtering) ─────────
 
-class _SongPickerSheet extends StatefulWidget {
+class _SongPickerSheet extends ConsumerStatefulWidget {
   const _SongPickerSheet({
     required this.available,
+    required this.currentRoundId,
     required this.onAdd,
   });
 
   final List<Song> available;
-  final Future<void> Function(Song song, String tempo) onAdd;
+  final int currentRoundId;
+  final Future<void> Function(
+          Song song, String tempo, List<SongRoundUsage> otherUsages)
+      onAdd;
 
   @override
-  State<_SongPickerSheet> createState() => _SongPickerSheetState();
+  ConsumerState<_SongPickerSheet> createState() => _SongPickerSheetState();
 }
 
-class _SongPickerSheetState extends State<_SongPickerSheet> {
+class _SongPickerSheetState extends ConsumerState<_SongPickerSheet> {
   String _query = '';
   String _selectedTempo = 'medium';
+  String _roundFilter = 'all'; // 'all', 'multi', 'fresh'
   int _viewMode = 0; // 0 = list, 1 = grid
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final filtered = _query.isEmpty
-        ? widget.available
-        : widget.available
-            .where((s) =>
-                s.title.toLowerCase().contains(_query.toLowerCase()) ||
-                (s.category != null &&
-                    s.category!.toLowerCase().contains(_query.toLowerCase())))
-            .toList();
+
+    final allUsages =
+        ref.watch(allSongRoundUsagesProvider).value ?? {};
+
+    // Counts for filters
+    final multiCount = widget.available
+        .where((s) => (allUsages[s.id] ?? [])
+            .any((u) => u.round.id != widget.currentRoundId))
+        .length;
+    final freshCount = widget.available
+        .where((s) => (allUsages[s.id] ?? []).isEmpty)
+        .length;
+
+    final filtered = widget.available.where((s) {
+      final matchesQuery = _query.isEmpty ||
+          s.title.toLowerCase().contains(_query.toLowerCase()) ||
+          (s.category != null &&
+              s.category!.toLowerCase().contains(_query.toLowerCase()));
+      if (!matchesQuery) return false;
+
+      final usages = (allUsages[s.id] ?? [])
+          .where((u) => u.round.id != widget.currentRoundId)
+          .toList();
+
+      if (_roundFilter == 'multi') {
+        return usages.isNotEmpty;
+      } else if (_roundFilter == 'fresh') {
+        return (allUsages[s.id] ?? []).isEmpty;
+      }
+      return true;
+    }).toList();
 
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
@@ -1796,7 +2109,40 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
+
+                  // Multi-Round Filter chips: All / In Other Rounds / Fresh
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildFilterPill(
+                          id: 'all',
+                          label: 'All (${widget.available.length})',
+                          isSelected: _roundFilter == 'all',
+                          color: const Color(0xFFFF6F00),
+                          isDark: isDark,
+                        ),
+                        const SizedBox(width: 6),
+                        _buildFilterPill(
+                          id: 'multi',
+                          label: '🔁 In other rounds ($multiCount)',
+                          isSelected: _roundFilter == 'multi',
+                          color: const Color(0xFF1E88E5),
+                          isDark: isDark,
+                        ),
+                        const SizedBox(width: 6),
+                        _buildFilterPill(
+                          id: 'fresh',
+                          label: '✨ Fresh (Unused) ($freshCount)',
+                          isSelected: _roundFilter == 'fresh',
+                          color: Colors.teal,
+                          isDark: isDark,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                 ],
               ),
             ),
@@ -1806,7 +2152,7 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
               child: filtered.isEmpty
                   ? Center(
                       child: Text(
-                        'No songs found matching "$_query"',
+                        'No songs found matching filters',
                         style: TextStyle(
                             color: theme.colorScheme.onSurfaceVariant),
                       ),
@@ -1818,10 +2164,16 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
                           itemCount: filtered.length,
                           itemBuilder: (context, i) {
                             final s = filtered[i];
+                            final otherUsages = (allUsages[s.id] ?? [])
+                                .where((u) =>
+                                    u.round.id != widget.currentRoundId)
+                                .toList();
                             return _SongPickerListItem(
                               song: s,
                               selectedTempo: _selectedTempo,
-                              onTap: () => widget.onAdd(s, _selectedTempo),
+                              otherUsages: otherUsages,
+                              onTap: () => widget.onAdd(
+                                  s, _selectedTempo, otherUsages),
                             );
                           },
                         )
@@ -1833,20 +2185,68 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
                             crossAxisCount: 2,
                             mainAxisSpacing: 10,
                             crossAxisSpacing: 10,
-                            childAspectRatio: 1.35,
+                            childAspectRatio: 1.25,
                           ),
                           itemCount: filtered.length,
                           itemBuilder: (context, i) {
                             final s = filtered[i];
+                            final otherUsages = (allUsages[s.id] ?? [])
+                                .where((u) =>
+                                    u.round.id != widget.currentRoundId)
+                                .toList();
                             return _SongPickerGridItem(
                               song: s,
                               selectedTempo: _selectedTempo,
-                              onTap: () => widget.onAdd(s, _selectedTempo),
+                              otherUsages: otherUsages,
+                              onTap: () => widget.onAdd(
+                                  s, _selectedTempo, otherUsages),
                             );
                           },
                         ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterPill({
+    required String id,
+    required String label,
+    required bool isSelected,
+    required Color color,
+    required bool isDark,
+  }) {
+    return GestureDetector(
+      onTap: () => setState(() => _roundFilter = id),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? color.withValues(alpha: isDark ? 0.25 : 0.14)
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : Colors.black.withValues(alpha: 0.04)),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected
+                ? color
+                : (isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.black.withValues(alpha: 0.08)),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            color: isSelected
+                ? color
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       ),
     );
@@ -1857,11 +2257,13 @@ class _SongPickerListItem extends StatelessWidget {
   const _SongPickerListItem({
     required this.song,
     required this.selectedTempo,
+    required this.otherUsages,
     required this.onTap,
   });
 
   final Song song;
   final String selectedTempo;
+  final List<SongRoundUsage> otherUsages;
   final VoidCallback onTap;
 
   @override
@@ -1890,15 +2292,43 @@ class _SongPickerListItem extends StatelessWidget {
           song.title,
           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
         ),
-        subtitle: song.category != null
-            ? Text(
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (song.category != null)
+              Text(
                 song.category!,
                 style: TextStyle(
                   fontSize: 12,
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
-              )
-            : null,
+              ),
+            // Multi-round usage badge
+            if (otherUsages.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Row(
+                  children: [
+                    const Icon(Icons.repeat_rounded,
+                        size: 12, color: Color(0xFF1E88E5)),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        'Also in: ${otherUsages.map((u) => u.round.name).join(', ')}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1E88E5),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1929,11 +2359,13 @@ class _SongPickerGridItem extends StatelessWidget {
   const _SongPickerGridItem({
     required this.song,
     required this.selectedTempo,
+    required this.otherUsages,
     required this.onTap,
   });
 
   final Song song;
   final String selectedTempo;
+  final List<SongRoundUsage> otherUsages;
   final VoidCallback onTap;
 
   @override
@@ -1952,9 +2384,11 @@ class _SongPickerGridItem extends StatelessWidget {
               : theme.colorScheme.surfaceContainerLow,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.08)
-                : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+            color: otherUsages.isNotEmpty
+                ? const Color(0xFF1E88E5).withValues(alpha: 0.4)
+                : (isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
           ),
         ),
         child: Column(
@@ -1981,15 +2415,36 @@ class _SongPickerGridItem extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Text(
               song.title,
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
-            if (song.category != null) ...[
-              const SizedBox(height: 4),
+            if (otherUsages.isNotEmpty) ...[
+              const SizedBox(height: 3),
+              Row(
+                children: [
+                  const Icon(Icons.repeat_rounded,
+                      size: 11, color: Color(0xFF1E88E5)),
+                  const SizedBox(width: 3),
+                  Expanded(
+                    child: Text(
+                      'In ${otherUsages.length} round${otherUsages.length > 1 ? 's' : ''}',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E88E5),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ] else if (song.category != null) ...[
+              const SizedBox(height: 3),
               Text(
                 song.category!,
                 style: TextStyle(

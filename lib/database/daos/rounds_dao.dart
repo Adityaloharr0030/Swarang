@@ -22,6 +22,17 @@ class RoundSongWithDetails {
   });
 }
 
+/// Data model representing a song's usage in a specific round with tempo info.
+class SongRoundUsage {
+  final Round round;
+  final RoundSongEntry entry;
+
+  const SongRoundUsage({
+    required this.round,
+    required this.entry,
+  });
+}
+
 /// Data Access Object for Rounds, RoundPeople, and RoundSongs.
 @DriftAccessor(tables: [Rounds, RoundPeople, RoundSongs, People, Songs])
 class RoundsDao extends DatabaseAccessor<AppDatabase>
@@ -221,6 +232,55 @@ class RoundsDao extends DatabaseAccessor<AppDatabase>
       await (update(roundSongs)..where((rs) => rs.id.equals(entries[i].id)))
           .write(RoundSongsCompanion(orderIndex: Value(i)));
     }
+  }
+
+  /// Get all rounds where a specific song is used.
+  Future<List<SongRoundUsage>> getRoundsForSong(int songId) {
+    final query = select(roundSongs).join([
+      innerJoin(rounds, rounds.id.equalsExp(roundSongs.roundId)),
+    ]);
+    query.where(roundSongs.songId.equals(songId));
+    query.orderBy([OrderingTerm.asc(rounds.createdAt)]);
+    return query.get().then((rows) => rows
+        .map((r) => SongRoundUsage(
+              round: r.readTable(rounds),
+              entry: r.readTable(roundSongs),
+            ))
+        .toList());
+  }
+
+  /// Watch all rounds where a specific song is used.
+  Stream<List<SongRoundUsage>> watchRoundsForSong(int songId) {
+    final query = select(roundSongs).join([
+      innerJoin(rounds, rounds.id.equalsExp(roundSongs.roundId)),
+    ]);
+    query.where(roundSongs.songId.equals(songId));
+    query.orderBy([OrderingTerm.asc(rounds.createdAt)]);
+    return query.watch().map((rows) => rows
+        .map((r) => SongRoundUsage(
+              round: r.readTable(rounds),
+              entry: r.readTable(roundSongs),
+            ))
+        .toList());
+  }
+
+  /// Watch all song usages across all rounds mapped by songId.
+  Stream<Map<int, List<SongRoundUsage>>> watchAllSongRoundUsages() {
+    final query = select(roundSongs).join([
+      innerJoin(rounds, rounds.id.equalsExp(roundSongs.roundId)),
+    ]);
+    query.orderBy([OrderingTerm.asc(rounds.createdAt)]);
+    return query.watch().map((rows) {
+      final map = <int, List<SongRoundUsage>>{};
+      for (final r in rows) {
+        final usage = SongRoundUsage(
+          round: r.readTable(rounds),
+          entry: r.readTable(roundSongs),
+        );
+        map.putIfAbsent(usage.entry.songId, () => []).add(usage);
+      }
+      return map;
+    });
   }
 
   // ── Round-Person Songs (Legacy Person Association) ───────────────────────────
