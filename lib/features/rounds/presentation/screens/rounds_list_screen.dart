@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/confirm_dialog.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../database/app_database.dart';
@@ -92,7 +91,7 @@ class RoundsListScreen extends ConsumerWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Assign songs to each singer per round with tempo',
+                            'Organize songs with tempo & swipe like a gallery',
                             style: TextStyle(
                               fontSize: 12,
                               color: theme.colorScheme.onSurfaceVariant,
@@ -112,10 +111,10 @@ class RoundsListScreen extends ConsumerWidget {
               if (rounds.isEmpty) {
                 return SliverFillRemaining(
                   child: EmptyState(
-                    icon: Icons.loop_rounded,
+                    icon: Icons.view_carousel_rounded,
                     title: 'No rounds yet',
                     subtitle:
-                        'Create your first round to plan songs for each singer.',
+                        'Create your first round to organize songs and swipe during performances.',
                     actionLabel: 'Create Round',
                     onAction: () => context.push('/rounds/add'),
                   ).animate().fadeIn(duration: 400.ms),
@@ -177,10 +176,7 @@ class _RoundCard extends ConsumerWidget {
     final isDark = theme.brightness == Brightness.dark;
     final dateFormat = DateFormat('dd MMM yyyy');
 
-    final peopleCountAsync = ref.watch(peopleCountForRoundProvider(round.id));
     final songCountAsync = ref.watch(songCountForRoundProvider(round.id));
-
-    final peopleCount = peopleCountAsync.value ?? 0;
     final songCount = songCountAsync.value ?? 0;
 
     return Padding(
@@ -322,7 +318,7 @@ class _RoundCard extends ConsumerWidget {
                                   context: context,
                                   title: 'Delete "${round.name}"?',
                                   content:
-                                      'All singer assignments and song selections for this round will be deleted.',
+                                      'All songs organized in this round will be removed.',
                                 );
                                 if (confirmed && context.mounted) {
                                   await deleteRound(ref, round.id);
@@ -356,15 +352,15 @@ class _RoundCard extends ConsumerWidget {
                       Row(
                         children: [
                           _StatChip(
-                            icon: Icons.people_rounded,
-                            label: '$peopleCount singer${peopleCount == 1 ? '' : 's'}',
-                            color: AppColors.peopleGradientStart,
-                          ),
-                          const SizedBox(width: 8),
-                          _StatChip(
                             icon: Icons.music_note_rounded,
                             label: '$songCount song${songCount == 1 ? '' : 's'}',
-                            color: AppColors.songsGradientStart,
+                            color: const Color(0xFFFF6F00),
+                          ),
+                          const SizedBox(width: 8),
+                          const _StatChip(
+                            icon: Icons.view_carousel_rounded,
+                            label: 'Swipe Gallery',
+                            color: Colors.teal,
                           ),
                           const Spacer(),
                           Icon(Icons.arrow_forward_ios_rounded,

@@ -6,10 +6,9 @@ import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../database/app_database.dart';
-import '../../../people/presentation/providers/people_providers.dart';
 import '../providers/rounds_providers.dart';
 
-/// Screen for creating or editing a Round.
+/// Screen for creating or editing a Round (song setlist for live performance).
 class RoundFormScreen extends ConsumerStatefulWidget {
   const RoundFormScreen({super.key, this.roundId});
 
@@ -24,7 +23,6 @@ class _RoundFormScreenState extends ConsumerState<RoundFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _notesController = TextEditingController();
-  final Set<int> _selectedPersonIds = {};
 
   DateTime? _selectedDate;
   bool _isLoading = false;
@@ -106,9 +104,6 @@ class _RoundFormScreenState extends ConsumerState<RoundFormScreen> {
               : _notesController.text.trim(),
           date: _selectedDate,
         );
-        for (final personId in _selectedPersonIds) {
-          await addPersonToRound(ref, roundId: id, personId: personId);
-        }
         if (mounted) context.go('/rounds/$id');
       }
     } finally {
@@ -121,8 +116,6 @@ class _RoundFormScreenState extends ConsumerState<RoundFormScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final dateFormat = DateFormat('dd MMM yyyy');
-    final allPeopleAsync = ref.watch(allPeopleProvider);
-    final allPeople = allPeopleAsync.value ?? [];
 
     return Scaffold(
       appBar: AppBar(
@@ -148,6 +141,13 @@ class _RoundFormScreenState extends ConsumerState<RoundFormScreen> {
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFFF6F00).withValues(alpha: 0.3),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
@@ -158,7 +158,7 @@ class _RoundFormScreenState extends ConsumerState<RoundFormScreen> {
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: const Icon(
-                      Icons.loop_rounded,
+                      Icons.view_carousel_rounded,
                       color: Colors.white,
                       size: 28,
                     ),
@@ -178,9 +178,9 @@ class _RoundFormScreenState extends ConsumerState<RoundFormScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Assign songs to each singer with tempo',
+                          'Add songs with tempo and swipe through them like a gallery',
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.8),
+                            color: Colors.white.withValues(alpha: 0.85),
                             fontSize: 13,
                           ),
                         ),
@@ -199,7 +199,7 @@ class _RoundFormScreenState extends ConsumerState<RoundFormScreen> {
             TextFormField(
               controller: _nameController,
               decoration: _inputDecoration(
-                hintText: 'e.g. Night 1 – Round 2',
+                hintText: 'e.g. Round 1 – Mataji Na Garba, Night 1 Titodo',
                 icon: Icons.text_fields_rounded,
                 isDark: isDark,
                 theme: theme,
@@ -233,11 +233,13 @@ class _RoundFormScreenState extends ConsumerState<RoundFormScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.calendar_month_rounded,
-                        color: _selectedDate != null
-                            ? const Color(0xFFFF6F00)
-                            : theme.colorScheme.onSurfaceVariant,
-                        size: 20),
+                    Icon(
+                      Icons.calendar_month_rounded,
+                      color: _selectedDate != null
+                          ? const Color(0xFFFF6F00)
+                          : theme.colorScheme.onSurfaceVariant,
+                      size: 20,
+                    ),
                     const SizedBox(width: 12),
                     Text(
                       _selectedDate != null
@@ -245,8 +247,8 @@ class _RoundFormScreenState extends ConsumerState<RoundFormScreen> {
                           : 'Pick a date',
                       style: TextStyle(
                         color: _selectedDate != null
-                            ? theme.colorScheme.onSurface
-                            : theme.colorScheme.onSurfaceVariant,
+                          ? theme.colorScheme.onSurface
+                          : theme.colorScheme.onSurfaceVariant,
                         fontSize: 15,
                       ),
                     ),
@@ -272,119 +274,12 @@ class _RoundFormScreenState extends ConsumerState<RoundFormScreen> {
               controller: _notesController,
               maxLines: 3,
               decoration: _inputDecoration(
-                hintText: 'Any notes about this round...',
+                hintText: 'e.g. Start slow with 2-Taali, build to 3-Taali, finish with Titodo',
                 icon: Icons.notes_rounded,
                 isDark: isDark,
                 theme: theme,
               ),
             ).animate().fadeIn(delay: 200.ms),
-
-            // Select singers section (when creating)
-            if (!_isEditing) ...[
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _buildLabel('Select Singers (optional)', Icons.groups_rounded),
-                  if (allPeople.isNotEmpty)
-                    TextButton(
-                      onPressed: () {
-                        setState(() {
-                          if (_selectedPersonIds.length == allPeople.length) {
-                            _selectedPersonIds.clear();
-                          } else {
-                            _selectedPersonIds.addAll(allPeople.map((p) => p.id));
-                          }
-                        });
-                      },
-                      child: Text(
-                        _selectedPersonIds.length == allPeople.length
-                            ? 'Deselect All'
-                            : 'Select All (${allPeople.length})',
-                        style: const TextStyle(
-                          color: Color(0xFFFF6F00),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              if (allPeople.isEmpty)
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.04)
-                        : theme.colorScheme.surfaceContainerHighest
-                            .withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Text(
-                    'No singers added in the app yet.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                )
-              else
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.04)
-                        : theme.colorScheme.surfaceContainerHighest
-                            .withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 0.08)
-                          : theme.colorScheme.outlineVariant
-                              .withValues(alpha: 0.5),
-                    ),
-                  ),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: allPeople.map((person) {
-                      final isSelected =
-                          _selectedPersonIds.contains(person.id);
-                      return FilterChip(
-                        selected: isSelected,
-                        showCheckmark: true,
-                        checkmarkColor: Colors.white,
-                        selectedColor: const Color(0xFFFF6F00),
-                        backgroundColor: isDark
-                            ? Colors.white.withValues(alpha: 0.06)
-                            : theme.colorScheme.surface,
-                        label: Text(
-                          person.name,
-                          style: TextStyle(
-                            color: isSelected
-                                ? Colors.white
-                                : theme.colorScheme.onSurface,
-                            fontWeight: isSelected
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                            fontSize: 13,
-                          ),
-                        ),
-                        onSelected: (val) {
-                          setState(() {
-                            if (val) {
-                              _selectedPersonIds.add(person.id);
-                            } else {
-                              _selectedPersonIds.remove(person.id);
-                            }
-                          });
-                        },
-                      );
-                    }).toList(),
-                  ),
-                ),
-            ],
 
             const SizedBox(height: 36),
 
@@ -398,9 +293,11 @@ class _RoundFormScreenState extends ConsumerState<RoundFormScreen> {
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white),
                     )
-                  : Icon(_isEditing ? Icons.save_rounded : Icons.add_circle_rounded),
+                  : Icon(_isEditing
+                      ? Icons.save_rounded
+                      : Icons.add_circle_rounded),
               label: Text(
-                _isEditing ? 'Save Changes' : 'Create Round',
+                _isEditing ? 'Save Changes' : 'Create Round & Add Songs',
                 style:
                     const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),

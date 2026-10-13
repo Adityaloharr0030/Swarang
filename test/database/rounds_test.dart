@@ -257,5 +257,88 @@ void main() {
       expect(sorted[2].song.title, 'Sanedo (Fast)');
       expect(sorted[2].entry.tempo, 'fast');
     });
+
+    test('direct round songs without people: add, details, reorder, auto-sort by tempo', () async {
+      final roundId = await db.roundsDao.insertRound(
+        RoundsCompanion.insert(name: 'Direct Songs Round'),
+      );
+
+      final songFast = await db.songsDao.insertSong(
+        SongsCompanion.insert(title: 'Titodo Fast'),
+      );
+      final songSlow = await db.songsDao.insertSong(
+        SongsCompanion.insert(title: 'Dakla Slow'),
+      );
+      final songMed = await db.songsDao.insertSong(
+        SongsCompanion.insert(title: 'Keherwa Medium'),
+      );
+
+      // Add songs directly to round (no person needed)
+      await db.roundsDao.addSongToRound(
+        roundId: roundId,
+        songId: songFast,
+        tempo: 'fast',
+        orderIndex: 0,
+      );
+      await db.roundsDao.addSongToRound(
+        roundId: roundId,
+        songId: songSlow,
+        tempo: 'slow',
+        orderIndex: 1,
+      );
+      await db.roundsDao.addSongToRound(
+        roundId: roundId,
+        songId: songMed,
+        tempo: 'medium',
+        orderIndex: 2,
+      );
+
+      // Fetch songs directly for round
+      final directSongs = await db.roundsDao.getSongsWithDetailsForRound(roundId);
+      expect(directSongs.length, 3);
+      expect(directSongs[0].person, isNull);
+      expect(directSongs[0].song.title, 'Titodo Fast');
+      expect(directSongs[1].song.title, 'Dakla Slow');
+      expect(directSongs[2].song.title, 'Keherwa Medium');
+
+      // Check counts
+      final songCount = await db.roundsDao.countSongsInRound(roundId);
+      expect(songCount, 3);
+
+      final tempoMap = await db.roundsDao.watchTempoCountsInRound(roundId).first;
+      expect(tempoMap['slow'], 1);
+      expect(tempoMap['medium'], 1);
+      expect(tempoMap['fast'], 1);
+
+      // Auto-sort directly for the round
+      await db.roundsDao.sortSongsByTempoForRound(roundId);
+
+      final sortedDirect = await db.roundsDao.getSongsWithDetailsForRound(roundId);
+      expect(sortedDirect[0].song.title, 'Dakla Slow');
+      expect(sortedDirect[0].entry.tempo, 'slow');
+      expect(sortedDirect[1].song.title, 'Keherwa Medium');
+      expect(sortedDirect[1].entry.tempo, 'medium');
+      expect(sortedDirect[2].song.title, 'Titodo Fast');
+      expect(sortedDirect[2].entry.tempo, 'fast');
+
+      // Reorder songs manually
+      await db.roundsDao.reorderSongsForRound(
+        roundId: roundId,
+        songIds: [songFast, songSlow, songMed],
+      );
+      final reordered = await db.roundsDao.getSongsWithDetailsForRound(roundId);
+      expect(reordered[0].song.title, 'Titodo Fast');
+      expect(reordered[1].song.title, 'Dakla Slow');
+      expect(reordered[2].song.title, 'Keherwa Medium');
+
+      // Remove a song directly from round
+      await db.roundsDao.removeSongFromRound(
+        roundId: roundId,
+        songId: songFast,
+      );
+      final afterRemove = await db.roundsDao.getSongsWithDetailsForRound(roundId);
+      expect(afterRemove.length, 2);
+      expect(afterRemove.any((s) => s.song.id == songFast), isFalse);
+    });
   });
 }

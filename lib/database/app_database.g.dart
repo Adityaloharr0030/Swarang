@@ -2202,9 +2202,9 @@ class $RoundSongsTable extends RoundSongs
   late final GeneratedColumn<int> personId = GeneratedColumn<int>(
     'person_id',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.int,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
     defaultConstraints: GeneratedColumn.constraintIsAlways(
       'REFERENCES people (id)',
     ),
@@ -2293,8 +2293,6 @@ class $RoundSongsTable extends RoundSongs
         _personIdMeta,
         personId.isAcceptableOrUnknown(data['person_id']!, _personIdMeta),
       );
-    } else if (isInserting) {
-      context.missing(_personIdMeta);
     }
     if (data.containsKey('song_id')) {
       context.handle(
@@ -2329,7 +2327,7 @@ class $RoundSongsTable extends RoundSongs
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
   List<Set<GeneratedColumn>> get uniqueKeys => [
-    {roundId, personId, songId},
+    {roundId, songId},
   ];
   @override
   RoundSongEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
@@ -2346,7 +2344,7 @@ class $RoundSongsTable extends RoundSongs
       personId: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}person_id'],
-      )!,
+      ),
       songId: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}song_id'],
@@ -2375,19 +2373,19 @@ class $RoundSongsTable extends RoundSongs
 class RoundSongEntry extends DataClass implements Insertable<RoundSongEntry> {
   final int id;
   final int roundId;
-  final int personId;
+  final int? personId;
   final int songId;
 
   /// Tempo: 'fast', 'medium', or 'slow'
   final String tempo;
 
-  /// Order within this person's song list in this round
+  /// Order within this round's song list
   final int orderIndex;
   final DateTime createdAt;
   const RoundSongEntry({
     required this.id,
     required this.roundId,
-    required this.personId,
+    this.personId,
     required this.songId,
     required this.tempo,
     required this.orderIndex,
@@ -2398,7 +2396,9 @@ class RoundSongEntry extends DataClass implements Insertable<RoundSongEntry> {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['round_id'] = Variable<int>(roundId);
-    map['person_id'] = Variable<int>(personId);
+    if (!nullToAbsent || personId != null) {
+      map['person_id'] = Variable<int>(personId);
+    }
     map['song_id'] = Variable<int>(songId);
     map['tempo'] = Variable<String>(tempo);
     map['order_index'] = Variable<int>(orderIndex);
@@ -2410,7 +2410,9 @@ class RoundSongEntry extends DataClass implements Insertable<RoundSongEntry> {
     return RoundSongsCompanion(
       id: Value(id),
       roundId: Value(roundId),
-      personId: Value(personId),
+      personId: personId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(personId),
       songId: Value(songId),
       tempo: Value(tempo),
       orderIndex: Value(orderIndex),
@@ -2426,7 +2428,7 @@ class RoundSongEntry extends DataClass implements Insertable<RoundSongEntry> {
     return RoundSongEntry(
       id: serializer.fromJson<int>(json['id']),
       roundId: serializer.fromJson<int>(json['roundId']),
-      personId: serializer.fromJson<int>(json['personId']),
+      personId: serializer.fromJson<int?>(json['personId']),
       songId: serializer.fromJson<int>(json['songId']),
       tempo: serializer.fromJson<String>(json['tempo']),
       orderIndex: serializer.fromJson<int>(json['orderIndex']),
@@ -2439,7 +2441,7 @@ class RoundSongEntry extends DataClass implements Insertable<RoundSongEntry> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'roundId': serializer.toJson<int>(roundId),
-      'personId': serializer.toJson<int>(personId),
+      'personId': serializer.toJson<int?>(personId),
       'songId': serializer.toJson<int>(songId),
       'tempo': serializer.toJson<String>(tempo),
       'orderIndex': serializer.toJson<int>(orderIndex),
@@ -2450,7 +2452,7 @@ class RoundSongEntry extends DataClass implements Insertable<RoundSongEntry> {
   RoundSongEntry copyWith({
     int? id,
     int? roundId,
-    int? personId,
+    Value<int?> personId = const Value.absent(),
     int? songId,
     String? tempo,
     int? orderIndex,
@@ -2458,7 +2460,7 @@ class RoundSongEntry extends DataClass implements Insertable<RoundSongEntry> {
   }) => RoundSongEntry(
     id: id ?? this.id,
     roundId: roundId ?? this.roundId,
-    personId: personId ?? this.personId,
+    personId: personId.present ? personId.value : this.personId,
     songId: songId ?? this.songId,
     tempo: tempo ?? this.tempo,
     orderIndex: orderIndex ?? this.orderIndex,
@@ -2511,7 +2513,7 @@ class RoundSongEntry extends DataClass implements Insertable<RoundSongEntry> {
 class RoundSongsCompanion extends UpdateCompanion<RoundSongEntry> {
   final Value<int> id;
   final Value<int> roundId;
-  final Value<int> personId;
+  final Value<int?> personId;
   final Value<int> songId;
   final Value<String> tempo;
   final Value<int> orderIndex;
@@ -2528,13 +2530,12 @@ class RoundSongsCompanion extends UpdateCompanion<RoundSongEntry> {
   RoundSongsCompanion.insert({
     this.id = const Value.absent(),
     required int roundId,
-    required int personId,
+    this.personId = const Value.absent(),
     required int songId,
     this.tempo = const Value.absent(),
     this.orderIndex = const Value.absent(),
     this.createdAt = const Value.absent(),
   }) : roundId = Value(roundId),
-       personId = Value(personId),
        songId = Value(songId);
   static Insertable<RoundSongEntry> custom({
     Expression<int>? id,
@@ -2559,7 +2560,7 @@ class RoundSongsCompanion extends UpdateCompanion<RoundSongEntry> {
   RoundSongsCompanion copyWith({
     Value<int>? id,
     Value<int>? roundId,
-    Value<int>? personId,
+    Value<int?>? personId,
     Value<int>? songId,
     Value<String>? tempo,
     Value<int>? orderIndex,
@@ -4856,7 +4857,7 @@ typedef $$RoundPeopleTableProcessedTableManager =
 typedef $$RoundSongsTableCreateCompanionBuilder = RoundSongsCompanion Function({
   Value<int> id,
   required int roundId,
-  required int personId,
+  Value<int?> personId,
   required int songId,
   Value<String> tempo,
   Value<int> orderIndex,
@@ -4865,7 +4866,7 @@ typedef $$RoundSongsTableCreateCompanionBuilder = RoundSongsCompanion Function({
 typedef $$RoundSongsTableUpdateCompanionBuilder = RoundSongsCompanion Function({
   Value<int> id,
   Value<int> roundId,
-  Value<int> personId,
+  Value<int?> personId,
   Value<int> songId,
   Value<String> tempo,
   Value<int> orderIndex,
@@ -4896,9 +4897,9 @@ final class $$RoundSongsTableReferences
   static $PeopleTable _personIdTable(_$AppDatabase db) =>
       db.people.createAlias('round_songs__person_id__people__id');
 
-  $$PeopleTableProcessedTableManager get personId {
-    final $_column = $_itemColumn<int>('person_id')!;
-
+  $$PeopleTableProcessedTableManager? get personId {
+    final $_column = $_itemColumn<int>('person_id');
+    if ($_column == null) return null;
     final manager = $$PeopleTableTableManager(
       $_db,
       $_db.people,
@@ -5249,7 +5250,7 @@ class $$RoundSongsTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 Value<int> roundId = const Value.absent(),
-                Value<int> personId = const Value.absent(),
+                Value<int?> personId = const Value.absent(),
                 Value<int> songId = const Value.absent(),
                 Value<String> tempo = const Value.absent(),
                 Value<int> orderIndex = const Value.absent(),
@@ -5267,7 +5268,7 @@ class $$RoundSongsTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 required int roundId,
-                required int personId,
+                Value<int?> personId = const Value.absent(),
                 required int songId,
                 Value<String> tempo = const Value.absent(),
                 Value<int> orderIndex = const Value.absent(),

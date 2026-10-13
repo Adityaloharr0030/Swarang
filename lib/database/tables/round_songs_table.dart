@@ -12,13 +12,13 @@ import 'songs_table.dart';
 class RoundSongs extends Table {
   IntColumn get id => integer().autoIncrement()();
   IntColumn get roundId => integer().references(Rounds, #id)();
-  IntColumn get personId => integer().references(People, #id)();
+  IntColumn get personId => integer().nullable().references(People, #id)();
   IntColumn get songId => integer().references(Songs, #id)();
 
   /// Tempo: 'fast', 'medium', or 'slow'
   TextColumn get tempo => text().withDefault(const Constant('medium'))();
 
-  /// Order within this person's song list in this round
+  /// Order within this round's song list
   IntColumn get orderIndex => integer().withDefault(const Constant(0))();
 
   DateTimeColumn get createdAt =>
@@ -26,6 +26,6 @@ class RoundSongs extends Table {
 
   @override
   List<Set<Column>> get uniqueKeys => [
-        {roundId, personId, songId},
+        {roundId, songId},
       ];
 }

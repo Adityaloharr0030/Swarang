@@ -3,17 +3,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/confirm_dialog.dart';
-import '../../../../core/widgets/empty_state.dart';
 import '../../../../database/app_database.dart';
 import '../../../../database/daos/rounds_dao.dart';
-import '../../../people/presentation/providers/people_providers.dart';
 import '../../../songs/presentation/providers/songs_providers.dart';
+import '../../../songs/presentation/screens/photo_gallery_screen.dart';
 import '../providers/rounds_providers.dart';
 import '../widgets/tempo_visuals.dart';
 
-/// Round Detail screen — gallery-style per-person song management.
+/// Round Detail screen — Gallery Swipe song experience for live performance.
+/// Songs are added directly to the round and musicians can swipe horizontally
+/// like a photo gallery to move between songs, view lyrics, and adjust tempos.
 class RoundDetailScreen extends ConsumerStatefulWidget {
   const RoundDetailScreen({super.key, required this.roundId});
 
@@ -25,7 +25,9 @@ class RoundDetailScreen extends ConsumerStatefulWidget {
 
 class _RoundDetailScreenState extends ConsumerState<RoundDetailScreen> {
   late PageController _pageController;
-  int _currentPersonIndex = 0;
+  int _currentSongIndex = 0;
+  bool _isGalleryMode = true; // true = Swipe Gallery, false = Playlist List
+  double _lyricsFontSize = 17.0;
 
   @override
   void initState() {
@@ -39,19 +41,22 @@ class _RoundDetailScreenState extends ConsumerState<RoundDetailScreen> {
     super.dispose();
   }
 
-  void _goToPage(int index) {
-    setState(() => _currentPersonIndex = index);
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeInOutCubic,
-    );
+  void _goToSong(int index, int totalSongs) {
+    if (index < 0 || index >= totalSongs) return;
+    setState(() => _currentSongIndex = index);
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeInOutCubic,
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final roundAsync = ref.watch(roundByIdProvider(widget.roundId));
-    final peopleAsync = ref.watch(peopleForRoundProvider(widget.roundId));
+    final songsAsync = ref.watch(songsForRoundProvider(widget.roundId));
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -64,104 +69,111 @@ class _RoundDetailScreenState extends ConsumerState<RoundDetailScreen> {
           );
         }
 
-        return peopleAsync.when(
-          data: (people) {
-            // Clamp page index
-            if (_currentPersonIndex >= people.length && people.isNotEmpty) {
-              _currentPersonIndex = people.length - 1;
+        return songsAsync.when(
+          data: (songs) {
+            // Keep index within bounds
+            if (_currentSongIndex >= songs.length && songs.isNotEmpty) {
+              _currentSongIndex = songs.length - 1;
             }
 
             return Scaffold(
-              body: CustomScrollView(
-                slivers: [
-                  // App bar
-                  SliverAppBar(
-                    expandedHeight: 180,
-                    pinned: true,
-                    stretch: true,
-                    backgroundColor: theme.colorScheme.surface,
-                    actions: [
-                      IconButton(
-                        icon: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface
-                                .withValues(alpha: 0.6),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.edit_rounded, size: 18),
-                        ),
-                        onPressed: () =>
-                            context.push('/rounds/${round.id}/edit'),
+              appBar: AppBar(
+                title: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      round.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 17,
                       ),
-                      IconButton(
-                        icon: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface
-                                .withValues(alpha: 0.6),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.person_add_rounded, size: 18),
-                        ),
-                        tooltip: 'Add Singer',
-                        onPressed: () =>
-                            _showAddPersonDialog(context, people),
-                      ),
-                    ],
-                    flexibleSpace: FlexibleSpaceBar(
-                      title: Text(
-                        round.name,
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurface,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ).animate().fadeIn(),
-                      titlePadding:
-                          const EdgeInsets.only(left: 16, bottom: 16),
-                      background: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  const Color(0xFFFF6F00).withValues(
-                                      alpha: isDark ? 0.3 : 0.2),
-                                  const Color(0xFFBF360C).withValues(
-                                      alpha: isDark ? 0.1 : 0.05),
-                                  theme.colorScheme.surface,
-                                ],
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            right: -40,
-                            bottom: 20,
-                            child: Icon(
-                              Icons.loop_rounded,
-                              size: 160,
-                              color: const Color(0xFFFF6F00)
-                                  .withValues(alpha: 0.06),
-                            ),
-                          ),
-                        ],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      songs.isEmpty
+                          ? 'No songs'
+                          : '${songs.length} song${songs.length == 1 ? '' : 's'} • ${_isGalleryMode ? 'Gallery Swipe' : 'Playlist View'}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
+                  ],
+                ),
+                backgroundColor: theme.colorScheme.surface,
+                elevation: 0,
+                actions: [
+                  // Toggle between Gallery Swipe & Playlist List
+                  if (songs.isNotEmpty)
+                    IconButton(
+                      icon: Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: _isGalleryMode
+                              ? const Color(0xFFFF6F00).withValues(alpha: 0.15)
+                              : theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: _isGalleryMode
+                                ? const Color(0xFFFF6F00).withValues(alpha: 0.4)
+                                : Colors.transparent,
+                          ),
+                        ),
+                        child: Icon(
+                          _isGalleryMode
+                              ? Icons.format_list_bulleted_rounded
+                              : Icons.view_carousel_rounded,
+                          size: 19,
+                          color: _isGalleryMode
+                              ? const Color(0xFFFF6F00)
+                              : theme.colorScheme.onSurface,
+                        ),
+                      ),
+                      tooltip: _isGalleryMode
+                          ? 'Switch to Playlist List'
+                          : 'Switch to Gallery Swipe',
+                      onPressed: () {
+                        setState(() => _isGalleryMode = !_isGalleryMode);
+                      },
+                    ),
+
+                  // Add Song button
+                  IconButton(
+                    icon: Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFFF6F00), Color(0xFFBF360C)],
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.add_rounded,
+                          size: 19, color: Colors.white),
+                    ),
+                    tooltip: 'Add Song to Round',
+                    onPressed: () => _showAddSongSheet(context, songs),
                   ),
 
-                  // Content
-                  SliverToBoxAdapter(
-                    child: people.isEmpty
-                        ? _buildEmptyPeople(context)
-                        : _buildGalleryContent(
-                            context, people, round, isDark, theme),
+                  // Edit Round
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined, size: 20),
+                    tooltip: 'Edit Round',
+                    onPressed: () => context.push('/rounds/${round.id}/edit'),
                   ),
                 ],
               ),
+              body: songs.isEmpty
+                  ? _buildEmptySongs(context, round)
+                  : _isGalleryMode
+                      ? _buildGallerySwipeView(
+                          context, round, songs, isDark, theme)
+                      : _buildPlaylistListView(
+                          context, round, songs, isDark, theme),
+              bottomNavigationBar: (songs.isNotEmpty && _isGalleryMode)
+                  ? _buildGalleryBottomBar(
+                      context, songs, isDark, theme)
+                  : null,
             );
           },
           loading: () => const Scaffold(
@@ -181,135 +193,319 @@ class _RoundDetailScreenState extends ConsumerState<RoundDetailScreen> {
     );
   }
 
-  Widget _buildEmptyPeople(BuildContext context) {
+  // ─── Empty State ─────────────────────────────────────────────────────────────
+
+  Widget _buildEmptySongs(BuildContext context, Round round) {
     return Padding(
       padding: const EdgeInsets.all(32),
-      child: Column(
-        children: [
-          const SizedBox(height: 60),
-          EmptyState(
-            icon: Icons.people_outline_rounded,
-            title: 'No singers added',
-            subtitle: 'Add singers to this round to assign them songs.',
-            actionLabel: 'Add Singer',
-            onAction: () => _showAddPersonDialog(context, []),
-          ).animate().fadeIn(duration: 400.ms),
-        ],
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFFFF6F00).withValues(alpha: 0.15),
+                    const Color(0xFFBF360C).withValues(alpha: 0.08),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.view_carousel_rounded,
+                size: 64,
+                color: Color(0xFFFF6F00),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'No songs in this round yet',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Add songs to this round to create a live setlist. Once added, you can swipe through lyrics and tempos like a photo gallery!',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 28),
+            FilledButton.icon(
+              onPressed: () => _showAddSongSheet(context, []),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text(
+                'Add Songs to Round',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6F00),
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
-    );
+    ).animate().fadeIn(duration: 400.ms);
   }
 
-  Widget _buildGalleryContent(
+  // ─── Mode A: Gallery Swipe View ───────────────────────────────────────────────
+
+  Widget _buildGallerySwipeView(
     BuildContext context,
-    List<Person> people,
     Round round,
+    List<RoundSongWithDetails> songs,
     bool isDark,
     ThemeData theme,
   ) {
+    // Check if songs are out of Garba progression (Slow -> Medium -> Fast)
+    int tempoRank(String t) {
+      switch (t.toLowerCase()) {
+        case 'slow':
+          return 0;
+        case 'medium':
+          return 1;
+        case 'fast':
+          return 2;
+        default:
+          return 1;
+      }
+    }
+
+    bool isOutOfTempoOrder = false;
+    for (var i = 0; i < songs.length - 1; i++) {
+      if (tempoRank(songs[i].entry.tempo) >
+          tempoRank(songs[i + 1].entry.tempo)) {
+        isOutOfTempoOrder = true;
+        break;
+      }
+    }
+
     return Column(
       children: [
-        const SizedBox(height: 12),
-
-        // Singer tabs (horizontal scroll)
-        SizedBox(
-          height: 56,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            scrollDirection: Axis.horizontal,
-            itemCount: people.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 8),
-            itemBuilder: (context, i) {
-              final isSelected = i == _currentPersonIndex;
-              final person = people[i];
-              return GestureDetector(
-                onTap: () => _goToPage(i),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 250),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? const Color(0xFFFF6F00)
-                        : isDark
-                            ? Colors.white.withValues(alpha: 0.06)
-                            : theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isSelected
-                          ? const Color(0xFFFF6F00)
-                          : isDark
-                              ? Colors.white.withValues(alpha: 0.1)
-                              : theme.colorScheme.outlineVariant,
-                    ),
-                    boxShadow: isSelected
-                        ? [
-                            BoxShadow(
-                              color: const Color(0xFFFF6F00)
-                                  .withValues(alpha: 0.3),
-                              blurRadius: 8,
-                              offset: const Offset(0, 3),
-                            )
-                          ]
-                        : null,
-                  ),
-                  child: Text(
-                    person.name,
-                    style: TextStyle(
-                      fontWeight: isSelected
-                          ? FontWeight.bold
-                          : FontWeight.w500,
-                      fontSize: 13,
-                      color: isSelected
-                          ? Colors.white
-                          : theme.colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-              );
-            },
+        // Top gallery strip: Song indicator & quick song jumping pills
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+          decoration: BoxDecoration(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.02)
+                : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+            border: Border(
+              bottom: BorderSide(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.05)
+                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+              ),
+            ),
           ),
-        ).animate().fadeIn(duration: 300.ms),
-
-        // Page indicator
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(people.length, (i) {
-              final isActive = i == _currentPersonIndex;
-              return GestureDetector(
-                onTap: () => _goToPage(i),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 250),
-                  margin: const EdgeInsets.symmetric(horizontal: 3),
-                  width: isActive ? 20 : 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: isActive
-                        ? const Color(0xFFFF6F00)
-                        : theme.colorScheme.onSurface.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(3),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF6F00).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.swipe_rounded,
+                            size: 14, color: Color(0xFFFF6F00)),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Song ${_currentSongIndex + 1} of ${songs.length}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFFF6F00),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
+                  const Spacer(),
+                  if (isOutOfTempoOrder && songs.length > 1)
+                    InkWell(
+                      onTap: () async {
+                        await autoSortRoundSongsByTempo(ref,
+                            roundId: widget.roundId);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                  'Ordered in Garba flow: Slow (2-Taali) ➔ Med (3-Taali) ➔ Fast (Titodo)'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF6F00).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: const Color(0xFFFF6F00)
+                                .withValues(alpha: 0.35),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.auto_awesome_rounded,
+                                size: 12, color: Color(0xFFFF6F00)),
+                            SizedBox(width: 4),
+                            Text(
+                              'Auto-Order Flow',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFFF6F00),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // Horizontal thumbnail jumping pills
+              SizedBox(
+                height: 34,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: songs.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 6),
+                  itemBuilder: (context, i) {
+                    final item = songs[i];
+                    final isSelected = i == _currentSongIndex;
+                    final cfg = GarbaTempoConfig.from(item.entry.tempo);
+                    return GestureDetector(
+                      onTap: () => _goToSong(i, songs.length),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? cfg.color.withValues(alpha: isDark ? 0.25 : 0.18)
+                              : (isDark
+                                  ? Colors.white.withValues(alpha: 0.05)
+                                  : theme.colorScheme.surface),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isSelected
+                                ? cfg.color
+                                : (isDark
+                                    ? Colors.white.withValues(alpha: 0.08)
+                                    : theme.colorScheme.outlineVariant
+                                        .withValues(alpha: 0.4)),
+                            width: isSelected ? 1.6 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: cfg.color,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '#${i + 1}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.w500,
+                                color: isSelected
+                                    ? (isDark ? Colors.white : cfg.color)
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 80),
+                              child: Text(
+                                item.song.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isSelected
+                                      ? (isDark
+                                          ? Colors.white.withValues(alpha: 0.9)
+                                          : theme.colorScheme.onSurface)
+                                      : theme.colorScheme.onSurfaceVariant
+                                          .withValues(alpha: 0.7),
+                                  fontWeight: isSelected
+                                      ? FontWeight.w600
+                                      : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              );
-            }),
+              ),
+            ],
           ),
         ),
 
-        // PageView of singers
-        SizedBox(
-          height: MediaQuery.of(context).size.height * 0.65,
+        // Swipable PageView for Songs (Gallery Swipe Experience)
+        Expanded(
           child: PageView.builder(
             controller: _pageController,
-            itemCount: people.length,
-            onPageChanged: (i) => setState(() => _currentPersonIndex = i),
+            itemCount: songs.length,
+            onPageChanged: (i) => setState(() => _currentSongIndex = i),
             itemBuilder: (context, i) {
-              final person = people[i];
-              return _PersonSongPage(
-                roundId: round.id,
-                person: person,
-                allPeople: people,
-                onRemovePerson: () => _confirmRemovePerson(person),
+              final item = songs[i];
+              return _GallerySongSlide(
+                item: item,
+                index: i,
+                totalCount: songs.length,
+                roundId: widget.roundId,
+                lyricsFontSize: _lyricsFontSize,
+                onFontSizeChange: (newSize) {
+                  setState(() => _lyricsFontSize = newSize);
+                },
+                onRemove: () => _confirmRemoveSong(item),
+                onTempoChange: (newTempo) async {
+                  await updateRoundSongTempo(
+                    ref,
+                    roundId: widget.roundId,
+                    entryId: item.entry.id,
+                    tempo: newTempo,
+                  );
+                },
               );
             },
           ),
@@ -318,19 +514,140 @@ class _RoundDetailScreenState extends ConsumerState<RoundDetailScreen> {
     );
   }
 
-  Future<void> _showAddPersonDialog(
-      BuildContext context, List<Person> alreadyAdded) async {
-    final allPeopleAsync = ref.read(allPeopleProvider);
-    final allPeople = allPeopleAsync.value ?? [];
-    final addedIds = alreadyAdded.map((p) => p.id).toSet();
+  // ─── Gallery Bottom Navigation Bar ──────────────────────────────────────────
+
+  Widget _buildGalleryBottomBar(
+    BuildContext context,
+    List<RoundSongWithDetails> songs,
+    bool isDark,
+    ThemeData theme,
+  ) {
+    final hasPrev = _currentSongIndex > 0;
+    final hasNext = _currentSongIndex < songs.length - 1;
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+          16, 10, 16, MediaQuery.of(context).padding.bottom + 10),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF16161D) : Colors.white,
+        border: Border(
+          top: BorderSide(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.06),
+            blurRadius: 10,
+            offset: const Offset(0, -3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Previous Song button
+          OutlinedButton.icon(
+            onPressed:
+                hasPrev ? () => _goToSong(_currentSongIndex - 1, songs.length) : null,
+            icon: const Icon(Icons.arrow_back_rounded, size: 16),
+            label: const Text('Prev'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+
+          const Spacer(),
+
+          // Indicator Dots
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(
+              songs.length > 9 ? 9 : songs.length,
+              (dotIdx) {
+                // If many songs, show window around current
+                final bool isActive;
+                if (songs.length <= 9) {
+                  isActive = dotIdx == _currentSongIndex;
+                } else {
+                  final activeSlot =
+                      ((_currentSongIndex / (songs.length - 1)) * 8).round();
+                  isActive = dotIdx == activeSlot;
+                }
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                  width: isActive ? 18 : 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: isActive
+                        ? const Color(0xFFFF6F00)
+                        : (isDark
+                            ? Colors.white.withValues(alpha: 0.2)
+                            : Colors.black.withValues(alpha: 0.15)),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          const Spacer(),
+
+          // Next Song button
+          FilledButton.icon(
+            onPressed:
+                hasNext ? () => _goToSong(_currentSongIndex + 1, songs.length) : null,
+            icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+            label: const Text('Next'),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFFF6F00),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Mode B: Playlist / List View ─────────────────────────────────────────────
+
+  Widget _buildPlaylistListView(
+    BuildContext context,
+    Round round,
+    List<RoundSongWithDetails> songs,
+    bool isDark,
+    ThemeData theme,
+  ) {
+    return _PlaylistView(
+      roundId: widget.roundId,
+      songs: songs,
+      onConfirmRemove: _confirmRemoveSong,
+    );
+  }
+
+  // ─── Dialogs and Sheets ───────────────────────────────────────────────────────
+
+  Future<void> _showAddSongSheet(
+      BuildContext context, List<RoundSongWithDetails> existing) async {
+    final existingSongIds = existing.map((e) => e.song.id).toSet();
+    final allSongs = ref.read(allSongsProvider).value ?? [];
     final available =
-        allPeople.where((p) => !addedIds.contains(p.id)).toList();
+        allSongs.where((s) => !existingSongIds.contains(s.id)).toList();
 
     if (available.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content:
-                Text('All singers are already added to this round')),
+          content: Text('All songs in your library are already in this round!'),
+        ),
       );
       return;
     }
@@ -339,424 +656,690 @@ class _RoundDetailScreenState extends ConsumerState<RoundDetailScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _AddPersonSheet(
+      builder: (ctx) => _SongPickerSheet(
         available: available,
-        onAdd: (selectedPeople) async {
-          for (final person in selectedPeople) {
-            await addPersonToRound(
-              ref,
-              roundId: widget.roundId,
-              personId: person.id,
+        onAdd: (song, tempo) async {
+          await addSongToRound(
+            ref,
+            roundId: widget.roundId,
+            songId: song.id,
+            tempo: tempo,
+          );
+          if (ctx.mounted) {
+            Navigator.pop(ctx);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                    'Added "${song.title}" (${GarbaTempoConfig.from(tempo).label}) to round'),
+                duration: const Duration(seconds: 2),
+              ),
             );
           }
-          if (ctx.mounted) Navigator.pop(ctx);
         },
       ),
     );
   }
 
-  Future<void> _confirmRemovePerson(Person person) async {
+  Future<void> _confirmRemoveSong(RoundSongWithDetails item) async {
     final confirmed = await ConfirmDialog.show(
       context: context,
-      title: 'Remove ${person.name}?',
-      content:
-          'This will also remove all their songs in this round.',
+      title: 'Remove "${item.song.title}"?',
+      content: 'This song will be removed from this round.',
     );
     if (confirmed) {
-      await removePersonFromRound(
+      await removeSongFromRound(
         ref,
         roundId: widget.roundId,
-        personId: person.id,
+        songId: item.song.id,
       );
-      if (_currentPersonIndex > 0) {
-        setState(() => _currentPersonIndex--);
-      }
     }
   }
 }
 
-// ─── Per-Person Song Page ────────────────────────────────────────────────────
+// ─── Gallery Song Slide (Full Card in Swipe PageView) ─────────────────────────
 
-class _PersonSongPage extends ConsumerStatefulWidget {
-  const _PersonSongPage({
+class _GallerySongSlide extends StatelessWidget {
+  const _GallerySongSlide({
+    required this.item,
+    required this.index,
+    required this.totalCount,
     required this.roundId,
-    required this.person,
-    required this.allPeople,
-    required this.onRemovePerson,
+    required this.lyricsFontSize,
+    required this.onFontSizeChange,
+    required this.onRemove,
+    required this.onTempoChange,
   });
 
+  final RoundSongWithDetails item;
+  final int index;
+  final int totalCount;
   final int roundId;
-  final Person person;
-  final List<Person> allPeople;
-  final VoidCallback onRemovePerson;
-
-  @override
-  ConsumerState<_PersonSongPage> createState() => _PersonSongPageState();
-}
-
-class _PersonSongPageState extends ConsumerState<_PersonSongPage> {
-  String _tempoFilter = 'all'; // 'all', 'slow', 'medium', 'fast'
+  final double lyricsFontSize;
+  final ValueChanged<double> onFontSizeChange;
+  final VoidCallback onRemove;
+  final ValueChanged<String> onTempoChange;
 
   @override
   Widget build(BuildContext context) {
-    final args = (roundId: widget.roundId, personId: widget.person.id);
-    final songsAsync = ref.watch(songsForRoundPersonProvider(args));
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final cfg = GarbaTempoConfig.from(item.entry.tempo);
+
+    final photoList = item.song.photoPaths != null &&
+            item.song.photoPaths!.trim().isNotEmpty
+        ? item.song.photoPaths!
+            .split(',')
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList()
+        : <String>[];
+
+    final hasLyrics =
+        item.song.lyrics != null && item.song.lyrics!.trim().isNotEmpty;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Person header card
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.04)
-                  : theme.colorScheme.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-              ),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1C1C24) : Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: cfg.cardBorderColor(isDark),
+            width: 1.4,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: cfg.color.withValues(alpha: isDark ? 0.14 : 0.08),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
             ),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 22,
-                  backgroundColor:
-                      AppColors.peopleGradientStart.withValues(alpha: 0.15),
-                  child: Text(
-                    widget.person.name[0].toUpperCase(),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.peopleGradientStart,
-                      fontSize: 18,
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Top tempo header strip
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      cfg.color.withValues(alpha: isDark ? 0.25 : 0.15),
+                      cfg.color.withValues(alpha: isDark ? 0.08 : 0.03),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  border: Border(
+                    bottom: BorderSide(
+                      color: cfg.color.withValues(alpha: 0.2),
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.person.name,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 15),
+                child: Row(
+                  children: [
+                    // Order Badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: cfg.color,
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: cfg.color.withValues(alpha: 0.4),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
+                      child: Text(
+                        '#${index + 1}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+
+                    // Category tag if available
+                    if (item.song.category != null &&
+                        item.song.category!.isNotEmpty)
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.06)
+                                : Colors.black.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            item.song.category!,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+
+                    const Spacer(),
+
+                    // Interactive Tempo Badge with Speed Meter
+                    TempoBadge(
+                      tempo: item.entry.tempo,
+                      compact: false,
+                      showSpeedMeter: true,
+                      onTap: () async {
+                        final picked = await TempoSelectorSheet.show(
+                          context,
+                          currentTempo: item.entry.tempo,
+                          title: 'Change Tempo • ${item.song.title}',
+                        );
+                        if (picked != null && picked != item.entry.tempo) {
+                          onTempoChange(picked);
+                        }
+                      },
+                    ),
+
+                    const SizedBox(width: 4),
+
+                    // Remove from Round button
+                    IconButton(
+                      icon: Icon(Icons.remove_circle_outline_rounded,
+                          size: 20, color: theme.colorScheme.error),
+                      tooltip: 'Remove from Round',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: onRemove,
+                    ),
+                  ],
+                ),
+              ),
+
+              // Title section
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.song.title,
+                      style: TextStyle(
+                        fontSize: 21,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.onSurface,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    if (item.song.notes != null &&
+                        item.song.notes!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
                       Text(
-                        widget.person.gender,
+                        item.song.notes!,
                         style: TextStyle(
                           fontSize: 12,
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              // Controls row: Photo Attachment Button & Font size controls
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Row(
+                  children: [
+                    if (photoList.isNotEmpty)
+                      ActionChip(
+                        avatar: const Icon(Icons.photo_library_rounded,
+                            size: 15, color: Colors.white),
+                        label: Text(
+                          '${photoList.length} Sheet Photo${photoList.length > 1 ? 's' : ''}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        backgroundColor: Colors.teal.shade700,
+                        onPressed: () {
+                          PhotoGalleryScreen.show(
+                            context,
+                            photoPaths: photoList,
+                            title: item.song.title,
+                          );
+                        },
+                      ),
+                    const Spacer(),
+
+                    // Font size adjuster
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        InkWell(
+                          onTap: () {
+                            if (lyricsFontSize > 13) {
+                              onFontSizeChange(lyricsFontSize - 2);
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(6),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(Icons.text_decrease_rounded,
+                                size: 18,
+                                color: theme.colorScheme.onSurfaceVariant),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Text(
+                            '${lyricsFontSize.toInt()} pt',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () {
+                            if (lyricsFontSize < 28) {
+                              onFontSizeChange(lyricsFontSize + 2);
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(6),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(Icons.text_increase_rounded,
+                                size: 18,
+                                color: theme.colorScheme.onSurfaceVariant),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 6),
+              const Divider(height: 1, indent: 18, endIndent: 18),
+
+              // Scrollable Lyrics View
+              Expanded(
+                child: hasLyrics
+                    ? Scrollbar(
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
+                          child: SelectableText(
+                            item.song.lyrics!,
+                            style: TextStyle(
+                              fontSize: lyricsFontSize,
+                              height: 1.6,
+                              fontWeight: FontWeight.w500,
+                              color: theme.colorScheme.onSurface,
+                              letterSpacing: 0.1,
+                            ),
+                          ),
+                        ),
+                      )
+                    : Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.lyrics_rounded,
+                                size: 42,
+                                color: theme.colorScheme.onSurfaceVariant
+                                    .withValues(alpha: 0.4),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'No lyrics entered for this song',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              OutlinedButton.icon(
+                                onPressed: () =>
+                                    context.push('/songs/${item.song.id}/edit'),
+                                icon: const Icon(Icons.edit_rounded, size: 16),
+                                label: const Text('Add Lyrics'),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 8),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+              ),
+
+              // Bottom card footer: View full song details
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.03)
+                      : theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.35),
+                  border: Border(
+                    top: BorderSide(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.05)
+                          : theme.colorScheme.outlineVariant
+                              .withValues(alpha: 0.3),
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      cfg.garbaType,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: cfg.color,
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: () =>
+                          context.push('/songs/${item.song.id}'),
+                      icon: const Icon(Icons.open_in_new_rounded, size: 14),
+                      label: const Text('Song Details',
+                          style: TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Mode B: Playlist View (Reorderable List) ──────────────────────────────────
+
+class _PlaylistView extends ConsumerStatefulWidget {
+  const _PlaylistView({
+    required this.roundId,
+    required this.songs,
+    required this.onConfirmRemove,
+  });
+
+  final int roundId;
+  final List<RoundSongWithDetails> songs;
+  final ValueChanged<RoundSongWithDetails> onConfirmRemove;
+
+  @override
+  ConsumerState<_PlaylistView> createState() => _PlaylistViewState();
+}
+
+class _PlaylistViewState extends ConsumerState<_PlaylistView> {
+  String _tempoFilter = 'all';
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final slowCount = widget.songs
+        .where((e) => e.entry.tempo.toLowerCase() == 'slow')
+        .length;
+    final mediumCount = widget.songs
+        .where((e) => e.entry.tempo.toLowerCase() == 'medium')
+        .length;
+    final fastCount = widget.songs
+        .where((e) => e.entry.tempo.toLowerCase() == 'fast')
+        .length;
+
+    // Check if songs are out of tempo progression
+    int tempoRank(String t) {
+      switch (t.toLowerCase()) {
+        case 'slow':
+          return 0;
+        case 'medium':
+          return 1;
+        case 'fast':
+          return 2;
+        default:
+          return 1;
+      }
+    }
+
+    bool isOutOfTempoOrder = false;
+    for (var i = 0; i < widget.songs.length - 1; i++) {
+      if (tempoRank(widget.songs[i].entry.tempo) >
+          tempoRank(widget.songs[i + 1].entry.tempo)) {
+        isOutOfTempoOrder = true;
+        break;
+      }
+    }
+
+    final filtered = _tempoFilter == 'all'
+        ? widget.songs
+        : widget.songs
+            .where((e) => e.entry.tempo.toLowerCase() == _tempoFilter)
+            .toList();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        children: [
+          const SizedBox(height: 12),
+
+          // Flow and filters container
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.03)
+                  : theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TempoDistributionBar(
+                  slowCount: slowCount,
+                  mediumCount: mediumCount,
+                  fastCount: fastCount,
+                  height: 6,
+                  showLabels: true,
+                ),
+                const SizedBox(height: 10),
+
+                // Filter chips
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _filterChip(
+                        id: 'all',
+                        label: 'All (${widget.songs.length})',
+                        color: theme.colorScheme.primary,
+                        isDark: isDark,
+                      ),
+                      const SizedBox(width: 6),
+                      _filterChip(
+                        id: 'slow',
+                        label: '🌊 Slow ($slowCount)',
+                        color: GarbaTempoConfig.slow.color,
+                        isDark: isDark,
+                      ),
+                      const SizedBox(width: 6),
+                      _filterChip(
+                        id: 'medium',
+                        label: '⚡ Medium ($mediumCount)',
+                        color: GarbaTempoConfig.medium.color,
+                        isDark: isDark,
+                      ),
+                      const SizedBox(width: 6),
+                      _filterChip(
+                        id: 'fast',
+                        label: '🔥 Fast ($fastCount)',
+                        color: GarbaTempoConfig.fast.color,
+                        isDark: isDark,
                       ),
                     ],
                   ),
                 ),
-                // Add song button
-                FilledButton.tonalIcon(
-                  onPressed: () => _showSongPickerDialog(context, ref),
-                  icon: const Icon(Icons.add_rounded, size: 16),
-                  label: const Text('Add Song',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                  style: FilledButton.styleFrom(
-                    backgroundColor:
-                        const Color(0xFFFF6F00).withValues(alpha: 0.12),
-                    foregroundColor: const Color(0xFFFF6F00),
+
+                // Auto-order suggestion banner
+                if (isOutOfTempoOrder && widget.songs.length > 1) ...[
+                  const SizedBox(height: 10),
+                  Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF6F00)
+                          .withValues(alpha: isDark ? 0.16 : 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color:
+                            const Color(0xFFFF6F00).withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.auto_awesome_rounded,
+                            size: 16, color: Color(0xFFFF6F00)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Garba Progression: Slow ➔ Med ➔ Fast',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () async {
+                            await autoSortRoundSongsByTempo(ref,
+                                roundId: widget.roundId);
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                      'Songs ordered: Slow (2-Taali) ➔ Medium (3-Taali) ➔ Fast (Titodo)'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF6F00),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              'Auto-Order',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                IconButton(
-                  onPressed: widget.onRemovePerson,
-                  icon: Icon(Icons.person_remove_rounded,
-                      size: 18, color: theme.colorScheme.error),
-                  tooltip: 'Remove from round',
-                  visualDensity: VisualDensity.compact,
-                ),
+                ],
               ],
             ),
           ),
 
           const SizedBox(height: 12),
 
-          // Song list & Tempo distribution
+          // Songs List
           Expanded(
-            child: songsAsync.when(
-              data: (entries) {
-                if (entries.isEmpty) {
-                  return Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      EmptyState(
-                        icon: Icons.music_off_rounded,
-                        title: 'No songs yet',
-                        subtitle:
-                            'Tap "Add Song" to assign songs to ${widget.person.name}',
-                        actionLabel: 'Add Song',
-                        onAction: () => _showSongPickerDialog(context, ref),
-                      ),
-                    ],
-                  ).animate().fadeIn(duration: 400.ms);
-                }
-
-                final slowCount = entries
-                    .where((e) => e.entry.tempo.toLowerCase() == 'slow')
-                    .length;
-                final mediumCount = entries
-                    .where((e) => e.entry.tempo.toLowerCase() == 'medium')
-                    .length;
-                final fastCount = entries
-                    .where((e) => e.entry.tempo.toLowerCase() == 'fast')
-                    .length;
-
-                // Check if songs are out of conventional Garba tempo progression (Slow -> Medium -> Fast)
-                int tempoRank(String t) {
-                  switch (t.toLowerCase()) {
-                    case 'slow':
-                      return 0;
-                    case 'medium':
-                      return 1;
-                    case 'fast':
-                      return 2;
-                    default:
-                      return 1;
-                  }
-                }
-
-                bool isOutOfTempoOrder = false;
-                for (var i = 0; i < entries.length - 1; i++) {
-                  if (tempoRank(entries[i].entry.tempo) >
-                      tempoRank(entries[i + 1].entry.tempo)) {
-                    isOutOfTempoOrder = true;
-                    break;
-                  }
-                }
-
-                final filteredEntries = _tempoFilter == 'all'
-                    ? entries
-                    : entries
-                        .where((e) =>
-                            e.entry.tempo.toLowerCase() == _tempoFilter)
-                        .toList();
-
-                return Column(
-                  children: [
-                    // Tempo flow bar
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.03)
-                            : theme.colorScheme.surfaceContainerHighest
-                                .withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isDark
-                              ? Colors.white.withValues(alpha: 0.06)
-                              : theme.colorScheme.outlineVariant
-                                  .withValues(alpha: 0.4),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          TempoDistributionBar(
-                            slowCount: slowCount,
-                            mediumCount: mediumCount,
-                            fastCount: fastCount,
-                            height: 6,
-                            showLabels: true,
-                          ),
-                          const SizedBox(height: 8),
-
-                          // Tempo Filter Chips
-                          SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: [
-                                _filterChip(
-                                  id: 'all',
-                                  label: 'All (${entries.length})',
-                                  color: theme.colorScheme.primary,
-                                  isDark: isDark,
-                                ),
-                                const SizedBox(width: 6),
-                                _filterChip(
-                                  id: 'slow',
-                                  label: '🌊 Slow ($slowCount)',
-                                  color: GarbaTempoConfig.slow.color,
-                                  isDark: isDark,
-                                ),
-                                const SizedBox(width: 6),
-                                _filterChip(
-                                  id: 'medium',
-                                  label: '⚡ Medium ($mediumCount)',
-                                  color: GarbaTempoConfig.medium.color,
-                                  isDark: isDark,
-                                ),
-                                const SizedBox(width: 6),
-                                _filterChip(
-                                  id: 'fast',
-                                  label: '🔥 Fast ($fastCount)',
-                                  color: GarbaTempoConfig.fast.color,
-                                  isDark: isDark,
-                                ),
-                              ],
-                            ),
-                          ),
-
-                          // Auto-order suggestion banner when songs are out of tempo order
-                          if (isOutOfTempoOrder && entries.length > 1) ...[
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFF6F00)
-                                    .withValues(alpha: isDark ? 0.15 : 0.08),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: const Color(0xFFFF6F00)
-                                      .withValues(alpha: 0.35),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.auto_awesome_rounded,
-                                      size: 14, color: Color(0xFFFF6F00)),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      'Garba Flow: Slow ➔ Med ➔ Fast',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: theme.colorScheme.onSurface,
-                                      ),
-                                    ),
-                                  ),
-                                  InkWell(
-                                    onTap: () async {
-                                      await autoSortSongsByTempo(
-                                        ref,
-                                        roundId: widget.roundId,
-                                        personId: widget.person.id,
-                                      );
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                                'Songs ordered in Garba flow: Slow (2-Taali) ➔ Medium (3-Taali) ➔ Fast (Titodo)'),
-                                            duration: Duration(seconds: 2),
-                                          ),
-                                        );
-                                      }
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 3),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFFF6F00),
-                                        borderRadius:
-                                            BorderRadius.circular(6),
-                                      ),
-                                      child: const Text(
-                                        'Auto-Order',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ],
+            child: filtered.isEmpty
+                ? Center(
+                    child: Text(
+                      'No ${GarbaTempoConfig.from(_tempoFilter).label} songs',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
-
-                    const SizedBox(height: 10),
-
-                    // Song List
-                    Expanded(
-                      child: filteredEntries.isEmpty
-                          ? Center(
-                              child: Text(
-                                'No ${GarbaTempoConfig.from(_tempoFilter).label} songs',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            )
-                          : _tempoFilter == 'all'
-                              ? ReorderableListView.builder(
-                                  onReorderItem: (oldIndex, newIndex) async {
-                                    final songIds = entries
-                                        .map((e) => e.entry.songId)
-                                        .toList();
-                                    final moved = songIds.removeAt(oldIndex);
-                                    songIds.insert(newIndex, moved);
-                                    final dao = ref.read(roundsDaoProvider);
-                                    await dao.reorderSongsForRoundPerson(
-                                      roundId: widget.roundId,
-                                      personId: widget.person.id,
-                                      songIds: songIds,
-                                    );
-                                    ref.invalidate(songsForRoundPersonProvider(
-                                        (roundId: widget.roundId,
-                                        personId: widget.person.id)));
-                                  },
-                                  itemCount: filteredEntries.length,
-                                  itemBuilder: (context, index) {
-                                    final item = filteredEntries[index];
-                                    return _SongEntryCard(
-                                      key: ValueKey(item.entry.id),
-                                      item: item,
-                                      index: index,
-                                      roundId: widget.roundId,
-                                      personId: widget.person.id,
-                                      isReorderable: true,
-                                    );
-                                  },
-                                )
-                              : ListView.builder(
-                                  itemCount: filteredEntries.length,
-                                  itemBuilder: (context, index) {
-                                    final item = filteredEntries[index];
-                                    return _SongEntryCard(
-                                      key: ValueKey(item.entry.id),
-                                      item: item,
-                                      index: index,
-                                      roundId: widget.roundId,
-                                      personId: widget.person.id,
-                                      isReorderable: false,
-                                    );
-                                  },
-                                ),
-                    ),
-                  ],
-                );
-              },
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Error: $e')),
-            ),
+                  )
+                : _tempoFilter == 'all'
+                    ? ReorderableListView.builder(
+                        onReorderItem: (oldIndex, newIndex) async {
+                          final songIds =
+                              widget.songs.map((e) => e.song.id).toList();
+                          final moved = songIds.removeAt(oldIndex);
+                          songIds.insert(newIndex, moved);
+                          await reorderSongsForRound(
+                            ref,
+                            roundId: widget.roundId,
+                            songIds: songIds,
+                          );
+                        },
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final item = filtered[index];
+                          return _SongEntryCard(
+                            key: ValueKey(item.entry.id),
+                            item: item,
+                            index: index,
+                            roundId: widget.roundId,
+                            isReorderable: true,
+                            onRemove: () => widget.onConfirmRemove(item),
+                          );
+                        },
+                      )
+                    : ListView.builder(
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final item = filtered[index];
+                          return _SongEntryCard(
+                            key: ValueKey(item.entry.id),
+                            item: item,
+                            index: index,
+                            roundId: widget.roundId,
+                            isReorderable: false,
+                            onRemove: () => widget.onConfirmRemove(item),
+                          );
+                        },
+                      ),
           ),
         ],
       ),
@@ -778,9 +1361,9 @@ class _PersonSongPageState extends ConsumerState<_PersonSongPage> {
         decoration: BoxDecoration(
           color: isSelected
               ? color.withValues(alpha: isDark ? 0.25 : 0.15)
-              : isDark
+              : (isDark
                   ? Colors.white.withValues(alpha: 0.04)
-                  : Colors.black.withValues(alpha: 0.04),
+                  : Colors.black.withValues(alpha: 0.04)),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: isSelected
@@ -804,51 +1387,9 @@ class _PersonSongPageState extends ConsumerState<_PersonSongPage> {
       ),
     );
   }
-
-  Future<void> _showSongPickerDialog(
-      BuildContext context, WidgetRef ref) async {
-    // Get already-added song IDs for this person in this round
-    final dao = ref.read(roundsDaoProvider);
-    final existing = await dao.getSongsForRoundPerson(
-        roundId: widget.roundId, personId: widget.person.id);
-    final existingIds = existing.map((e) => e.songId).toSet();
-
-    final allSongs = ref.read(allSongsProvider).value ?? [];
-    final available =
-        allSongs.where((s) => !existingIds.contains(s.id)).toList();
-
-    if (!context.mounted) return;
-
-    if (available.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('All songs are already added for this singer')),
-      );
-      return;
-    }
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _SongPickerSheet(
-        available: available,
-        onAdd: (song, tempo) async {
-          await addSongToRoundPerson(
-            ref,
-            roundId: widget.roundId,
-            personId: widget.person.id,
-            songId: song.id,
-            tempo: tempo,
-          );
-          if (ctx.mounted) Navigator.pop(ctx);
-        },
-      ),
-    );
-  }
 }
 
-// ─── Song Entry Card ─────────────────────────────────────────────────────────
+// ─── Song Entry Card (used in Playlist Mode) ──────────────────────────────────
 
 class _SongEntryCard extends ConsumerWidget {
   const _SongEntryCard({
@@ -856,15 +1397,15 @@ class _SongEntryCard extends ConsumerWidget {
     required this.item,
     required this.index,
     required this.roundId,
-    required this.personId,
-    this.isReorderable = true,
+    required this.isReorderable,
+    required this.onRemove,
   });
 
   final RoundSongWithDetails item;
   final int index;
   final int roundId;
-  final int personId;
   final bool isReorderable;
+  final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -894,7 +1435,6 @@ class _SongEntryCard extends ConsumerWidget {
           borderRadius: BorderRadius.circular(14),
           child: Stack(
             children: [
-              // Left vertical tempo color indicator bar
               Positioned(
                 left: 0,
                 top: 0,
@@ -906,7 +1446,6 @@ class _SongEntryCard extends ConsumerWidget {
                   ),
                 ),
               ),
-              // Subtle soft tempo wash on the card background
               Positioned.fill(
                 child: Container(
                   color: cfg.subtleBgColor(isDark),
@@ -961,14 +1500,11 @@ class _SongEntryCard extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(width: 4),
-                      Text(
-                        '•',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: theme.colorScheme.onSurfaceVariant
-                              .withValues(alpha: 0.5),
-                        ),
-                      ),
+                      Text('•',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: theme.colorScheme.onSurfaceVariant
+                                  .withValues(alpha: 0.5))),
                       const SizedBox(width: 4),
                     ],
                     Text(
@@ -984,7 +1520,6 @@ class _SongEntryCard extends ConsumerWidget {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Tempo Badge with Speed Meter (tappable to select tempo)
                     TempoBadge(
                       tempo: item.entry.tempo,
                       compact: true,
@@ -996,10 +1531,9 @@ class _SongEntryCard extends ConsumerWidget {
                           title: 'Change Tempo • ${item.song.title}',
                         );
                         if (picked != null && picked != item.entry.tempo) {
-                          await updateSongTempo(
+                          await updateRoundSongTempo(
                             ref,
                             roundId: roundId,
-                            personId: personId,
                             entryId: item.entry.id,
                             tempo: picked,
                           );
@@ -1007,21 +1541,12 @@ class _SongEntryCard extends ConsumerWidget {
                       },
                     ),
                     const SizedBox(width: 2),
-                    // Delete button
                     IconButton(
-                      onPressed: () async {
-                        await removeSongFromRoundPerson(
-                          ref,
-                          roundId: roundId,
-                          personId: personId,
-                          songId: item.entry.songId,
-                        );
-                      },
+                      onPressed: onRemove,
                       icon: Icon(Icons.remove_circle_outline_rounded,
                           size: 18, color: theme.colorScheme.error),
                       visualDensity: VisualDensity.compact,
                     ),
-                    // Drag handle
                     if (isReorderable)
                       ReorderableDragStartListener(
                         index: index,
@@ -1036,318 +1561,6 @@ class _SongEntryCard extends ConsumerWidget {
               ),
             ],
           ),
-        ),
-      ),
-    )
-        .animate()
-        .fadeIn(
-            delay: Duration(milliseconds: index * 40), duration: 250.ms)
-        .slideX(begin: 0.05, end: 0, duration: 250.ms);
-  }
-}
-
-// ─── Add Person Bottom Sheet ──────────────────────────────────────────────────
-
-class _AddPersonSheet extends StatefulWidget {
-  const _AddPersonSheet({
-    required this.available,
-    required this.onAdd,
-  });
-
-  final List<Person> available;
-  final Future<void> Function(List<Person>) onAdd;
-
-  @override
-  State<_AddPersonSheet> createState() => _AddPersonSheetState();
-}
-
-class _AddPersonSheetState extends State<_AddPersonSheet> {
-  String _query = '';
-  final Set<int> _selectedIds = {};
-  bool _isAdding = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final filtered = _query.isEmpty
-        ? widget.available
-        : widget.available
-            .where((p) =>
-                p.name.toLowerCase().contains(_query.toLowerCase()))
-            .toList();
-
-    final allSelected = filtered.isNotEmpty &&
-        filtered.every((p) => _selectedIds.contains(p.id));
-
-    return DraggableScrollableSheet(
-      initialChildSize: 0.7,
-      maxChildSize: 0.95,
-      minChildSize: 0.4,
-      builder: (context, scrollController) => Container(
-        decoration: BoxDecoration(
-          color: isDark
-              ? const Color(0xFF1C1C1E)
-              : theme.colorScheme.surface,
-          borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          children: [
-            // Handle
-            Container(
-              margin: const EdgeInsets.only(top: 12),
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding:
-                  const EdgeInsets.fromLTRB(20, 16, 20, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Add Singers',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: theme.colorScheme.onSurface,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${_selectedIds.length} of ${widget.available.length} selected (no limit)',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                      TextButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            if (allSelected) {
-                              for (final p in filtered) {
-                                _selectedIds.remove(p.id);
-                              }
-                            } else {
-                              for (final p in filtered) {
-                                _selectedIds.add(p.id);
-                              }
-                            }
-                          });
-                        },
-                        icon: Icon(
-                          allSelected
-                              ? Icons.deselect_rounded
-                              : Icons.select_all_rounded,
-                          size: 16,
-                          color: const Color(0xFFFF6F00),
-                        ),
-                        label: Text(
-                          allSelected ? 'Deselect All' : 'Select All',
-                          style: const TextStyle(
-                            color: Color(0xFFFF6F00),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    onChanged: (v) => setState(() => _query = v),
-                    decoration: InputDecoration(
-                      hintText: 'Search singers...',
-                      prefixIcon: const Icon(Icons.search_rounded),
-                      filled: true,
-                      fillColor: isDark
-                          ? Colors.white.withValues(alpha: 0.05)
-                          : theme.colorScheme.surfaceContainerHighest,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 12),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: filtered.isEmpty
-                  ? Center(
-                      child: Text('No singers found',
-                          style: TextStyle(
-                              color: theme.colorScheme.onSurfaceVariant)))
-                  : ListView.builder(
-                      controller: scrollController,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: filtered.length,
-                      itemBuilder: (context, i) {
-                        final p = filtered[i];
-                        final isSelected = _selectedIds.contains(p.id);
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () {
-                              setState(() {
-                                if (isSelected) {
-                                  _selectedIds.remove(p.id);
-                                } else {
-                                  _selectedIds.add(p.id);
-                                }
-                              });
-                            },
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 180),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? const Color(0xFFFF6F00)
-                                        .withValues(alpha: isDark ? 0.18 : 0.08)
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? const Color(0xFFFF6F00)
-                                          .withValues(alpha: 0.4)
-                                      : Colors.transparent,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  CircleAvatar(
-                                    backgroundColor: isSelected
-                                        ? const Color(0xFFFF6F00)
-                                        : AppColors.peopleGradientStart
-                                            .withValues(alpha: 0.15),
-                                    foregroundColor: isSelected
-                                        ? Colors.white
-                                        : AppColors.peopleGradientStart,
-                                    child: Text(
-                                      p.name[0].toUpperCase(),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          p.name,
-                                          style: TextStyle(
-                                            fontWeight: isSelected
-                                                ? FontWeight.bold
-                                                : FontWeight.w600,
-                                            fontSize: 15,
-                                          ),
-                                        ),
-                                        Text(
-                                          p.gender,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: theme
-                                                .colorScheme.onSurfaceVariant,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  AnimatedContainer(
-                                    duration:
-                                        const Duration(milliseconds: 180),
-                                    width: 24,
-                                    height: 24,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: isSelected
-                                          ? const Color(0xFFFF6F00)
-                                          : Colors.transparent,
-                                      border: Border.all(
-                                        color: isSelected
-                                            ? const Color(0xFFFF6F00)
-                                            : theme.colorScheme.outlineVariant,
-                                        width: 2,
-                                      ),
-                                    ),
-                                    child: isSelected
-                                        ? const Icon(
-                                            Icons.check,
-                                            size: 16,
-                                            color: Colors.white,
-                                          )
-                                        : null,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            // Bottom Action Bar
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: FilledButton.icon(
-                  onPressed: _selectedIds.isEmpty || _isAdding
-                      ? null
-                      : () async {
-                          setState(() => _isAdding = true);
-                          final selected = widget.available
-                              .where((p) => _selectedIds.contains(p.id))
-                              .toList();
-                          await widget.onAdd(selected);
-                        },
-                  icon: _isAdding
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.group_add_rounded),
-                  label: Text(
-                    _selectedIds.isEmpty
-                        ? 'Select Singers'
-                        : 'Add ${_selectedIds.length} Singer${_selectedIds.length > 1 ? 's' : ''} to Round',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 15),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF6F00),
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 50),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -1372,8 +1585,7 @@ class _SongPickerSheet extends StatefulWidget {
 class _SongPickerSheetState extends State<_SongPickerSheet> {
   String _query = '';
   String _selectedTempo = 'medium';
-  // Gallery-style: show song cards in a grid
-  int _viewMode = 0; // 0 = list, 1 = gallery
+  int _viewMode = 0; // 0 = list, 1 = grid
 
   @override
   Widget build(BuildContext context) {
@@ -1383,7 +1595,9 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
         ? widget.available
         : widget.available
             .where((s) =>
-                s.title.toLowerCase().contains(_query.toLowerCase()))
+                s.title.toLowerCase().contains(_query.toLowerCase()) ||
+                (s.category != null &&
+                    s.category!.toLowerCase().contains(_query.toLowerCase())))
             .toList();
 
     return DraggableScrollableSheet(
@@ -1392,15 +1606,12 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
       minChildSize: 0.5,
       builder: (context, scrollController) => Container(
         decoration: BoxDecoration(
-          color: isDark
-              ? const Color(0xFF1C1C1E)
-              : theme.colorScheme.surface,
-          borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(24)),
+          color: isDark ? const Color(0xFF1C1C1E) : theme.colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
           children: [
-            // Handle
+            // Drag handle
             Container(
               margin: const EdgeInsets.only(top: 12),
               width: 36,
@@ -1418,7 +1629,7 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
                   Row(
                     children: [
                       Text(
-                        'Pick a Song',
+                        'Add Song to Round',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -1426,7 +1637,6 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
                         ),
                       ),
                       const Spacer(),
-                      // View mode toggle
                       IconButton(
                         onPressed: () =>
                             setState(() => _viewMode = 1 - _viewMode),
@@ -1434,18 +1644,18 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
                           _viewMode == 0
                               ? Icons.grid_view_rounded
                               : Icons.list_rounded,
-                          color: theme.colorScheme.primary,
+                          color: const Color(0xFFFF6F00),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
 
-                  // Search
+                  // Search input
                   TextField(
                     onChanged: (v) => setState(() => _query = v),
                     decoration: InputDecoration(
-                      hintText: 'Search songs...',
+                      hintText: 'Search by song name or category...',
                       prefixIcon: const Icon(Icons.search_rounded),
                       filled: true,
                       fillColor: isDark
@@ -1461,7 +1671,7 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Tempo selector
+                  // Tempo Selector for the song being added
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -1502,17 +1712,16 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
                                 color: isSelected
                                     ? t.color.withValues(
                                         alpha: isDark ? 0.22 : 0.12)
-                                    : isDark
+                                    : (isDark
                                         ? Colors.white.withValues(alpha: 0.04)
                                         : theme.colorScheme
-                                            .surfaceContainerHighest,
+                                            .surfaceContainerHighest),
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
                                   color: isSelected
                                       ? t.color
                                       : (isDark
-                                          ? Colors.white
-                                              .withValues(alpha: 0.08)
+                                          ? Colors.white.withValues(alpha: 0.08)
                                           : theme.colorScheme.outlineVariant
                                               .withValues(alpha: 0.4)),
                                   width: isSelected ? 2 : 1,
@@ -1520,8 +1729,8 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
                                 boxShadow: isSelected
                                     ? [
                                         BoxShadow(
-                                          color: t.color
-                                              .withValues(alpha: 0.25),
+                                          color:
+                                              t.color.withValues(alpha: 0.25),
                                           blurRadius: 8,
                                           offset: const Offset(0, 2),
                                         ),
@@ -1592,12 +1801,12 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
               ),
             ),
 
-            // Song list / grid
+            // Available Songs List/Grid
             Expanded(
               child: filtered.isEmpty
                   ? Center(
                       child: Text(
-                        'No songs found',
+                        'No songs found matching "$_query"',
                         style: TextStyle(
                             color: theme.colorScheme.onSurfaceVariant),
                       ),
@@ -1605,8 +1814,7 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
                   : _viewMode == 0
                       ? ListView.builder(
                           controller: scrollController,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
                           itemCount: filtered.length,
                           itemBuilder: (context, i) {
                             final s = filtered[i];
@@ -1625,7 +1833,7 @@ class _SongPickerSheetState extends State<_SongPickerSheet> {
                             crossAxisCount: 2,
                             mainAxisSpacing: 10,
                             crossAxisSpacing: 10,
-                            childAspectRatio: 1.3,
+                            childAspectRatio: 1.35,
                           ),
                           itemCount: filtered.length,
                           itemBuilder: (context, i) {
@@ -1651,6 +1859,7 @@ class _SongPickerListItem extends StatelessWidget {
     required this.selectedTempo,
     required this.onTap,
   });
+
   final Song song;
   final String selectedTempo;
   final VoidCallback onTap;
@@ -1658,15 +1867,17 @@ class _SongPickerListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cfg = GarbaTempoConfig.from(selectedTempo);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: ListTile(
         leading: Container(
-          width: 42,
-          height: 42,
+          width: 40,
+          height: 40,
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFFC62828), Color(0xFFEF5350)],
+              colors: [Color(0xFFFF6F00), Color(0xFFBF360C)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -1675,14 +1886,18 @@ class _SongPickerListItem extends StatelessWidget {
           child: const Icon(Icons.music_note_rounded,
               color: Colors.white, size: 20),
         ),
-        title: Text(song.title,
-            style: const TextStyle(
-                fontWeight: FontWeight.w600, fontSize: 14)),
+        title: Text(
+          song.title,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+        ),
         subtitle: song.category != null
-            ? Text(song.category!,
+            ? Text(
+                song.category!,
                 style: TextStyle(
-                    fontSize: 12,
-                    color: theme.colorScheme.onSurfaceVariant))
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              )
             : null,
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1692,9 +1907,15 @@ class _SongPickerListItem extends StatelessWidget {
               compact: true,
               showSpeedMeter: true,
             ),
-            const SizedBox(width: 6),
-            const Icon(Icons.add_circle_rounded,
-                color: Color(0xFFFF6F00)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: cfg.color.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.add_rounded, color: cfg.color, size: 18),
+            ),
           ],
         ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1710,6 +1931,7 @@ class _SongPickerGridItem extends StatelessWidget {
     required this.selectedTempo,
     required this.onTap,
   });
+
   final Song song;
   final String selectedTempo;
   final VoidCallback onTap;
@@ -1718,6 +1940,7 @@ class _SongPickerGridItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final cfg = GarbaTempoConfig.from(selectedTempo);
 
     return GestureDetector(
       onTap: onTap,
@@ -1740,10 +1963,10 @@ class _SongPickerGridItem extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFFC62828), Color(0xFFEF5350)],
+                      colors: [Color(0xFFFF6F00), Color(0xFFBF360C)],
                     ),
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -1761,8 +1984,7 @@ class _SongPickerGridItem extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               song.title,
-              style: const TextStyle(
-                  fontWeight: FontWeight.bold, fontSize: 13),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
@@ -1785,11 +2007,10 @@ class _SongPickerGridItem extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFF6F00).withValues(alpha: 0.12),
+                    color: cfg.color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.add_rounded,
-                      color: Color(0xFFFF6F00), size: 14),
+                  child: Icon(Icons.add_rounded, color: cfg.color, size: 14),
                 ),
               ],
             ),

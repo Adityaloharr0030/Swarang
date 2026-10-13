@@ -46,6 +46,12 @@ final songsForRoundPersonProvider =
       );
 });
 
+/// Watches all songs with full details for a round directly (no person needed).
+final songsForRoundProvider =
+    StreamProvider.family<List<RoundSongWithDetails>, int>((ref, roundId) {
+  return ref.watch(roundsDaoProvider).watchSongsWithDetailsForRound(roundId);
+});
+
 /// Watches song count for a round.
 final songCountForRoundProvider =
     StreamProvider.family<int, int>((ref, roundId) {
@@ -236,4 +242,80 @@ Future<void> autoSortSongsByTempo(
   await dao.sortSongsByTempo(roundId: roundId, personId: personId);
   ref.invalidate(
       songsForRoundPersonProvider((roundId: roundId, personId: personId)));
+}
+
+/// Add a song directly to a round (no person required).
+Future<void> addSongToRound(
+  WidgetRef ref, {
+  required int roundId,
+  required int songId,
+  String tempo = 'medium',
+}) async {
+  final dao = ref.read(roundsDaoProvider);
+  final exists = await dao.songExistsInRound(roundId: roundId, songId: songId);
+  if (!exists) {
+    final current = await dao.getSongsForRound(roundId);
+    await dao.addSongToRound(
+      roundId: roundId,
+      songId: songId,
+      tempo: tempo,
+      orderIndex: current.length,
+    );
+  }
+  ref.invalidate(songsForRoundProvider(roundId));
+  ref.invalidate(songCountForRoundProvider(roundId));
+  ref.invalidate(tempoCountsForRoundProvider(roundId));
+}
+
+/// Remove a song directly from a round.
+Future<void> removeSongFromRound(
+  WidgetRef ref, {
+  required int roundId,
+  required int songId,
+}) async {
+  final dao = ref.read(roundsDaoProvider);
+  await dao.removeSongFromRound(roundId: roundId, songId: songId);
+  ref.invalidate(songsForRoundProvider(roundId));
+  ref.invalidate(songCountForRoundProvider(roundId));
+  ref.invalidate(tempoCountsForRoundProvider(roundId));
+}
+
+/// Reorder songs within a round.
+Future<void> reorderSongsForRound(
+  WidgetRef ref, {
+  required int roundId,
+  required List<int> songIds,
+}) async {
+  final dao = ref.read(roundsDaoProvider);
+  await dao.reorderSongsForRound(roundId: roundId, songIds: songIds);
+  ref.invalidate(songsForRoundProvider(roundId));
+}
+
+/// Update tempo for any song in a round.
+Future<void> updateRoundSongTempo(
+  WidgetRef ref, {
+  required int roundId,
+  required int entryId,
+  required String tempo,
+  int? personId,
+}) async {
+  final dao = ref.read(roundsDaoProvider);
+  await dao.updateSongTempo(entryId: entryId, tempo: tempo);
+  ref.invalidate(songsForRoundProvider(roundId));
+  if (personId != null) {
+    ref.invalidate(
+        songsForRoundPersonProvider((roundId: roundId, personId: personId)));
+  }
+  ref.invalidate(tempoCountsForRoundProvider(roundId));
+}
+
+/// Automatically sort all songs in a round: Slow -> Medium -> Fast.
+Future<void> autoSortRoundSongsByTempo(
+  WidgetRef ref, {
+  required int roundId,
+}) async {
+  final dao = ref.read(roundsDaoProvider);
+  await dao.sortSongsByTempoForRound(roundId);
+  ref.invalidate(songsForRoundProvider(roundId));
+  ref.invalidate(tempoCountsForRoundProvider(roundId));
 }

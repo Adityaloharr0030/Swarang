@@ -9,16 +9,16 @@ import '../tables/songs_table.dart';
 
 part 'rounds_dao.g.dart';
 
-/// Data model for a round song entry with full song & person info.
+/// Data model for a round song entry with full song & optional person info.
 class RoundSongWithDetails {
   final RoundSongEntry entry;
   final Song song;
-  final Person person;
+  final Person? person;
 
   RoundSongWithDetails({
     required this.entry,
     required this.song,
-    required this.person,
+    this.person,
   });
 }
 
@@ -100,7 +100,130 @@ class RoundsDao extends DatabaseAccessor<AppDatabase>
     return query.watch().map((rows) => rows.map((r) => r.readTable(people)).toList());
   }
 
-  // ── Round Songs ───────────────────────────────────────────────────────────
+  // ── Round Songs (Direct Round Song Association) ─────────────────────────
+
+  /// Add a song directly to a round (no person needed).
+  Future<int> addSongToRound({
+    required int roundId,
+    required int songId,
+    String tempo = 'medium',
+    int orderIndex = 0,
+  }) =>
+      into(roundSongs).insert(
+        RoundSongsCompanion.insert(
+          roundId: roundId,
+          songId: songId,
+          tempo: Value(tempo),
+          orderIndex: Value(orderIndex),
+        ),
+        mode: InsertMode.insertOrIgnore,
+      );
+
+  /// Remove a song directly from a round.
+  Future<int> removeSongFromRound({
+    required int roundId,
+    required int songId,
+  }) =>
+      (delete(roundSongs)
+            ..where((rs) =>
+                rs.roundId.equals(roundId) &
+                rs.songId.equals(songId)))
+          .go();
+
+  /// Reorder songs within a round.
+  Future<void> reorderSongsForRound({
+    required int roundId,
+    required List<int> songIds, // new ordered list of song IDs
+  }) async {
+    for (var i = 0; i < songIds.length; i++) {
+      await (update(roundSongs)
+            ..where((rs) =>
+                rs.roundId.equals(roundId) &
+                rs.songId.equals(songIds[i])))
+          .write(RoundSongsCompanion(orderIndex: Value(i)));
+    }
+  }
+
+  /// Get all songs for a round ordered by orderIndex.
+  Future<List<RoundSongEntry>> getSongsForRound(int roundId) =>
+      (select(roundSongs)
+            ..where((rs) => rs.roundId.equals(roundId))
+            ..orderBy([(rs) => OrderingTerm.asc(rs.orderIndex)]))
+          .get();
+
+  /// Get all songs with song details for a round.
+  Future<List<RoundSongWithDetails>> getSongsWithDetailsForRound(int roundId) {
+    final query = select(roundSongs).join([
+      innerJoin(songs, songs.id.equalsExp(roundSongs.songId)),
+    ]);
+    query.where(roundSongs.roundId.equals(roundId));
+    query.orderBy([OrderingTerm.asc(roundSongs.orderIndex)]);
+    return query.get().then((rows) => rows
+        .map((r) => RoundSongWithDetails(
+              entry: r.readTable(roundSongs),
+              song: r.readTable(songs),
+            ))
+        .toList());
+  }
+
+  /// Watch all songs with song details for a round.
+  Stream<List<RoundSongWithDetails>> watchSongsWithDetailsForRound(int roundId) {
+    final query = select(roundSongs).join([
+      innerJoin(songs, songs.id.equalsExp(roundSongs.songId)),
+    ]);
+    query.where(roundSongs.roundId.equals(roundId));
+    query.orderBy([OrderingTerm.asc(roundSongs.orderIndex)]);
+    return query.watch().map((rows) => rows
+        .map((r) => RoundSongWithDetails(
+              entry: r.readTable(roundSongs),
+              song: r.readTable(songs),
+            ))
+        .toList());
+  }
+
+  /// Check if a song already exists in a round.
+  Future<bool> songExistsInRound({
+    required int roundId,
+    required int songId,
+  }) async {
+    final result = await (select(roundSongs)
+          ..where((rs) =>
+              rs.roundId.equals(roundId) &
+              rs.songId.equals(songId)))
+        .getSingleOrNull();
+    return result != null;
+  }
+
+  /// Sort all songs in a round in classic Garba progression:
+  /// Slow (2-Taali) -> Medium (3-Taali) -> Fast (Titodo / Climax).
+  Future<void> sortSongsByTempoForRound(int roundId) async {
+    final entries = await getSongsForRound(roundId);
+    int tempoRank(String t) {
+      switch (t.toLowerCase()) {
+        case 'slow':
+          return 0;
+        case 'medium':
+          return 1;
+        case 'fast':
+          return 2;
+        default:
+          return 1;
+      }
+    }
+
+    entries.sort((a, b) {
+      final rankDiff = tempoRank(a.tempo).compareTo(tempoRank(b.tempo));
+      if (rankDiff != 0) return rankDiff;
+      return a.orderIndex.compareTo(b.orderIndex);
+    });
+
+    for (var i = 0; i < entries.length; i++) {
+      await (update(roundSongs)..where((rs) => rs.id.equals(entries[i].id)))
+          .write(RoundSongsCompanion(orderIndex: Value(i)));
+    }
+  }
+
+  // ── Round-Person Songs (Legacy Person Association) ───────────────────────────
 
   /// Add a song to a person in a round (with tempo and order).
   Future<int> addSongToRoundPerson({
@@ -113,7 +236,7 @@ class RoundsDao extends DatabaseAccessor<AppDatabase>
       into(roundSongs).insert(
         RoundSongsCompanion.insert(
           roundId: roundId,
-          personId: personId,
+          personId: Value(personId),
           songId: songId,
           tempo: Value(tempo),
           orderIndex: Value(orderIndex),

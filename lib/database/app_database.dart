@@ -33,7 +33,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration {
@@ -56,6 +56,10 @@ class AppDatabase extends _$AppDatabase {
           await m.createTable(rounds);
           await m.createTable(roundPeople);
           await m.createTable(roundSongs);
+        }
+        if (from < 5) {
+          // Alter round_songs to allow nullable person_id and direct round song association.
+          await m.alterTable(TableMigration(roundSongs));
         }
       },
       beforeOpen: (details) async {

@@ -239,10 +239,9 @@ class DashboardScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: 8),
                         ...recentList.map((round) {
-                          final peopleCountAsync =
-                              ref.watch(peopleCountForRoundProvider(round.id));
                           final songCountAsync =
                               ref.watch(songCountForRoundProvider(round.id));
+                          final songCount = songCountAsync.value ?? 0;
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 8),
                             child: Material(
@@ -292,7 +291,7 @@ class DashboardScreen extends ConsumerWidget {
                                             ),
                                             const SizedBox(height: 2),
                                             Text(
-                                              '${peopleCountAsync.value ?? 0} singers • ${songCountAsync.value ?? 0} songs',
+                                              '$songCount song${songCount == 1 ? '' : 's'} • Swipe Gallery',
                                               style: TextStyle(
                                                 fontSize: 12,
                                                 color: theme.colorScheme.onSurfaceVariant,

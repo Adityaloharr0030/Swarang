@@ -363,7 +363,7 @@ class SettingsScreen extends ConsumerWidget {
           await db.into(db.roundSongs).insert(
                 RoundSongsCompanion.insert(
                   roundId: map['roundId'] as int,
-                  personId: map['personId'] as int,
+                  personId: Value(map['personId'] as int?),
                   songId: map['songId'] as int,
                   tempo: Value(map['tempo'] as String? ?? 'medium'),
                   orderIndex: Value(map['orderIndex'] as int? ?? 0),
